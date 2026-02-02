@@ -1,0 +1,100 @@
+/* assets/css/style.css */
+
+:root {
+    --polar-blue: #003399; /* Azul Oscuro Polar */
+    --polar-light: #0055cc; /* Azul Claro */
+    --accent-yellow: #ffcc00; /* Amarillo para alertas/vacíos */
+    --text-dark: #333333;
+}
+
+body {
+    background-color: #f4f6f9;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+/* Navbar Personalizado */
+.navbar-custom {
+    background: linear-gradient(135deg, var(--polar-blue) 0%, var(--polar-light) 100%);
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+.navbar-brand {
+    font-weight: 800;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+}
+
+/* Tarjetas (Cards) */
+.card {
+    border: none;
+    border-radius: 12px;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 10px 20px rgba(0,51,153,0.15);
+}
+
+.card-header {
+    background-color: var(--polar-blue);
+    color: white;
+    border-radius: 12px 12px 0 0 !important;
+    font-weight: 600;
+}
+
+/* Botones Personalizados */
+.btn-primary {
+    background-color: var(--polar-blue);
+    border-color: var(--polar-blue);
+}
+
+.btn-primary:hover {
+    background-color: var(--polar-light);
+}
+
+.btn-warning {
+    background-color: var(--accent-yellow);
+    color: #000;
+    font-weight: bold;
+    border: none;
+}
+
+/* Badges para el estatus */
+.badge-deuda {
+    background-color: #dc3545; /* Rojo */
+    box-shadow: 0 2px 4px rgba(220, 53, 69, 0.3);
+}
+
+.badge-pagado {
+    background-color: #198754; /* Verde */
+    box-shadow: 0 2px 4px rgba(25, 135, 84, 0.3);
+}
+/* Fondo difuminado del logo */
+body.dashboard-page {
+    position: relative;
+    min-height: 100vh;
+}
+
+body.dashboard-page::before {
+    content: "";
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-image: url('../img/logo.png');
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 40%;
+    opacity: 0.05;
+    z-index: -1;
+    filter: blur(2px) grayscale(100%);
+    pointer-events: none;
+}
+
+/* Asegurar que el contenido esté sobre el fondo */
+.dashboard-content {
+    position: relative;
+    z-index: 1;
+}
