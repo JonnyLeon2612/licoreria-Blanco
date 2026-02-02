@@ -12,18 +12,28 @@ if ($id_cliente <= 0) {
 }
 
 try {
+    // --- CORRECCIÓN: CÁLCULO MATEMÁTICO EN TIEMPO REAL ---
+    // En lugar de leer el saldo estático, calculamos: (Todo lo que debe) - (Todo lo que ha pagado)
     $stmt = $pdo->prepare("
-        SELECT saldo_dinero_usd, saldo_vacios 
-        FROM cuentas_por_cobrar 
-        WHERE id_cliente = ?
+        SELECT 
+            (
+              (SELECT COALESCE(SUM(total_monto_usd), 0) FROM ventas WHERE id_cliente = :id) - 
+              (SELECT COALESCE(SUM(monto_abonado_usd), 0) FROM abonos WHERE id_cliente = :id)
+            ) as saldo_dinero_usd,
+            
+            (
+              (SELECT COALESCE(SUM(total_vacios_despachados), 0) FROM ventas WHERE id_cliente = :id) - 
+              (SELECT COALESCE(SUM(vacios_devueltos), 0) FROM abonos WHERE id_cliente = :id)
+            ) as saldo_vacios
     ");
-    $stmt->execute([$id_cliente]);
+    
+    $stmt->execute([':id' => $id_cliente]);
     $deuda = $stmt->fetch(PDO::FETCH_ASSOC);
     
     if ($deuda) {
         echo json_encode([
             'success' => true,
-            'deuda' => floatval($deuda['saldo_dinero_usd']),
+            'deuda' => floatval($deuda['saldo_dinero_usd']), // Ahora enviará el monto real calculado
             'vacios' => intval($deuda['saldo_vacios'])
         ]);
     } else {

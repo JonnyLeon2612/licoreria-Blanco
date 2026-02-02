@@ -7,18 +7,28 @@ include '../../includes/header.php';
 $id_cliente = isset($_GET['id']) ? intval($_GET['id']) : 0;
 
 if ($id_cliente <= 0) {
-    $_SESSION['error'] = "Cliente no especificado";
     header("Location: index.php");
     exit();
 }
 
-// Obtener información del cliente
+// 1. OBTENER INFORMACIÓN Y CALCULAR DEUDA MATEMÁTICA (INFALIBLE)
 $cliente = $pdo->prepare("
-    SELECT c.*, cc.*,
+    SELECT c.*, 
+           -- Deuda Dinero = (Total Vendido) - (Total Abonado)
+           (
+             (SELECT COALESCE(SUM(total_monto_usd), 0) FROM ventas WHERE id_cliente = c.id_cliente) - 
+             (SELECT COALESCE(SUM(monto_abonado_usd), 0) FROM abonos WHERE id_cliente = c.id_cliente)
+           ) as deuda_real,
+           
+           -- Deuda Vacíos = (Total Entregado) - (Total Devuelto)
+           (
+             (SELECT COALESCE(SUM(total_vacios_despachados), 0) FROM ventas WHERE id_cliente = c.id_cliente) - 
+             (SELECT COALESCE(SUM(vacios_devueltos), 0) FROM abonos WHERE id_cliente = c.id_cliente)
+           ) as vacios_reales,
+           
            (SELECT COUNT(*) FROM ventas WHERE id_cliente = c.id_cliente) as total_ventas,
            (SELECT SUM(total_monto_usd) FROM ventas WHERE id_cliente = c.id_cliente) as monto_total_ventas,
-           (SELECT MAX(fecha_venta) FROM ventas WHERE id_cliente = c.id_cliente) as ultima_compra,
-           (SELECT MIN(fecha_venta) FROM ventas WHERE id_cliente = c.id_cliente) as primera_compra
+           cc.limite_credito, cc.dias_credito
     FROM clientes c
     LEFT JOIN cuentas_por_cobrar cc ON c.id_cliente = cc.id_cliente
     WHERE c.id_cliente = ?
@@ -49,9 +59,9 @@ $historial = $pdo->prepare("
 $historial->execute([$id_cliente, $id_cliente]);
 $historial = $historial->fetchAll();
 
-// Obtener ventas pendientes
+// Obtener ventas pendientes (Solo visualización)
 $ventas_pendientes = $pdo->prepare("
-    SELECT id_venta, fecha_venta, total_monto_usd, total_vacios_despachados
+    SELECT id_venta, fecha_venta, total_monto_usd, total_vacios_despachados, estado_pago
     FROM ventas 
     WHERE id_cliente = ? AND estado_pago != 'Pagado'
     ORDER BY fecha_venta DESC
@@ -80,14 +90,13 @@ $ventas_pendientes = $ventas_pendientes->fetchAll();
         <a href="../cobranza/index.php?cliente=<?php echo $id_cliente; ?>" class="btn btn-success">
             <i class="bi bi-cash-coin"></i> Registrar Pago
         </a>
-        <a href="index.php" class="btn btn-outline-secondary">
-            <i class="bi bi-arrow-left"></i> Volver
+        <a href="javascript:history.back()" class="btn btn-secondary">
+        <i class="bi bi-arrow-left"></i> Regresar
         </a>
     </div>
 </div>
 
 <div class="row mb-4">
-    <!-- Información del Cliente -->
     <div class="col-lg-4 mb-4">
         <div class="card">
             <div class="card-header bg-primary text-white">
@@ -132,7 +141,7 @@ $ventas_pendientes = $ventas_pendientes->fetchAll();
                 <div class="mb-3">
                     <label class="small text-muted">Cliente desde</label>
                     <p class="mb-0 fw-bold">
-                        <?php if($cliente['primera_compra']): ?>
+                        <?php if(isset($cliente['primera_compra'])): ?>
                             <?php echo date('d/m/Y', strtotime($cliente['primera_compra'])); ?>
                         <?php else: ?>
                             <span class="text-muted">Sin compras aún</span>
@@ -149,7 +158,6 @@ $ventas_pendientes = $ventas_pendientes->fetchAll();
         </div>
     </div>
     
-    <!-- Estado de Cuenta -->
     <div class="col-lg-8 mb-4">
         <div class="row">
             <div class="col-md-6 mb-3">
@@ -159,8 +167,8 @@ $ventas_pendientes = $ventas_pendientes->fetchAll();
                             <i class="bi bi-cash-coin"></i>
                         </div>
                         <h5 class="card-title">Deuda Dinero</h5>
-                        <h2>$<?php echo number_format($cliente['saldo_dinero_usd'], 2); ?></h2>
-                        <p class="card-text">Total adeudado</p>
+                        <h2>$<?php echo number_format($cliente['deuda_real'], 2); ?></h2>
+                        <p class="card-text">Pendiente por cobrar</p>
                     </div>
                 </div>
             </div>
@@ -172,14 +180,13 @@ $ventas_pendientes = $ventas_pendientes->fetchAll();
                             <i class="bi bi-box-seam"></i>
                         </div>
                         <h5 class="card-title">Vacíos Pendientes</h5>
-                        <h2><?php echo number_format($cliente['saldo_vacios']); ?></h2>
+                        <h2><?php echo number_format($cliente['vacios_reales']); ?></h2>
                         <p class="card-text">Cajas por devolver</p>
                     </div>
                 </div>
             </div>
         </div>
         
-        <!-- Límite de Crédito (solo para mayoristas) -->
         <?php if($cliente['tipo_cliente'] == 'Mayorista'): ?>
         <div class="card mb-4">
             <div class="card-header bg-info text-white">
@@ -195,8 +202,8 @@ $ventas_pendientes = $ventas_pendientes->fetchAll();
                         <label class="small text-muted">Crédito Disponible</label>
                         <?php 
                         $limite = $cliente['limite_credito'] ?? 0;
-                        $disponible = $limite - $cliente['saldo_dinero_usd'];
-                        $porcentaje = $limite > 0 ? ($cliente['saldo_dinero_usd'] / $limite) * 100 : 0;
+                        $disponible = $limite - $cliente['deuda_real'];
+                        $porcentaje = $limite > 0 ? ($cliente['deuda_real'] / $limite) * 100 : 0;
                         ?>
                         <h4 class="<?php echo $disponible < ($limite * 0.3) ? 'text-danger' : 'text-success'; ?>">
                             $<?php echo number_format($disponible, 2); ?>
@@ -218,7 +225,6 @@ $ventas_pendientes = $ventas_pendientes->fetchAll();
         </div>
         <?php endif; ?>
         
-        <!-- Estadísticas -->
         <div class="card">
             <div class="card-header bg-secondary text-white">
                 <h5 class="mb-0"><i class="bi bi-graph-up"></i> Estadísticas</h5>
@@ -248,7 +254,6 @@ $ventas_pendientes = $ventas_pendientes->fetchAll();
     </div>
 </div>
 
-<!-- Ventas Pendientes -->
 <?php if(count($ventas_pendientes) > 0): ?>
 <div class="card mb-4">
     <div class="card-header bg-warning text-dark">
@@ -261,8 +266,8 @@ $ventas_pendientes = $ventas_pendientes->fetchAll();
                     <tr>
                         <th>Venta #</th>
                         <th>Fecha</th>
-                        <th class="text-end">Monto</th>
-                        <th class="text-center">Vacíos Entregados</th>
+                        <th class="text-end">Monto Original</th>
+                        <th class="text-center">Estado</th>
                         <th>Acciones</th>
                     </tr>
                 </thead>
@@ -273,7 +278,9 @@ $ventas_pendientes = $ventas_pendientes->fetchAll();
                         <td><?php echo date('d/m/Y H:i', strtotime($venta['fecha_venta'])); ?></td>
                         <td class="text-end fw-bold">$<?php echo number_format($venta['total_monto_usd'], 2); ?></td>
                         <td class="text-center">
-                            <span class="badge bg-warning text-dark"><?php echo $venta['total_vacios_despachados']; ?></span>
+                            <span class="badge bg-<?php echo $venta['estado_pago'] == 'Abonado' ? 'info' : 'danger'; ?>">
+                                <?php echo $venta['estado_pago']; ?>
+                            </span>
                         </td>
                         <td>
                             <a href="../ventas/comprobante.php?id=<?php echo $venta['id_venta']; ?>" 
@@ -290,7 +297,6 @@ $ventas_pendientes = $ventas_pendientes->fetchAll();
 </div>
 <?php endif; ?>
 
-<!-- Historial de Transacciones -->
 <div class="card">
     <div class="card-header bg-dark text-white">
         <h5 class="mb-0"><i class="bi bi-clock-history"></i> Historial de Transacciones</h5>
@@ -327,7 +333,9 @@ $ventas_pendientes = $ventas_pendientes->fetchAll();
                             <?php endif; ?>
                         </td>
                         <td class="text-end fw-bold">
-                            <?php if($movimiento['tipo'] == 'VENTA'): ?>
+                            <?php if((float)$movimiento['monto'] == 0): ?>
+                                <span class="text-muted small fw-normal">$0.00</span>
+                            <?php elseif($movimiento['tipo'] == 'VENTA'): ?>
                                 <span class="text-danger">-$<?php echo number_format($movimiento['monto'], 2); ?></span>
                             <?php else: ?>
                                 <span class="text-success">+$<?php echo number_format($movimiento['monto'], 2); ?></span>
@@ -351,7 +359,9 @@ $ventas_pendientes = $ventas_pendientes->fetchAll();
                                     <?php echo $movimiento['estado_pago']; ?>
                                 </span>
                             <?php else: ?>
-                                <small><?php echo $movimiento['estado_pago']; ?></small>
+                                <span class="badge bg-success-subtle text-success border border-success-subtle">
+                                    <i class="bi bi-check2-all"></i> Recibido
+                                </span>
                             <?php endif; ?>
                         </td>
                     </tr>

@@ -21,51 +21,41 @@ function formato_numero($valor) {
 function dias_desde($fecha) {
     if (!$fecha) return 0;
     
-    $fecha_dt = new DateTime($fecha);
-    $hoy = new DateTime();
-    $diferencia = $hoy->diff($fecha_dt);
-    
-    return $diferencia->days;
+    try {
+        $fecha_dt = new DateTime($fecha);
+        $hoy = new DateTime();
+        $diferencia = $hoy->diff($fecha_dt);
+        return $diferencia->days;
+    } catch (Exception $e) {
+        return 0;
+    }
 }
 
 /**
  * Obtener estado de stock basado en cantidad
  */
 function estado_stock($cantidad, $minimo = 10) {
-    if ($cantidad == 0) {
+    if ($cantidad <= 0) {
         return ['texto' => 'Sin Stock', 'color' => 'danger'];
     } elseif ($cantidad < 5) {
         return ['texto' => 'Muy Bajo', 'color' => 'danger'];
     } elseif ($cantidad < $minimo) {
         return ['texto' => 'Bajo', 'color' => 'warning'];
-    } elseif ($cantidad < ($minimo * 2)) {
-        return ['texto' => 'Normal', 'color' => 'info'];
     } else {
         return ['texto' => 'Óptimo', 'color' => 'success'];
     }
 }
 
 /**
- * Obtener estado de pago basado en estado y días de mora
+ * Obtener estado de pago basado en monto total y pagado
  */
-function estado_pago($estado, $fecha_ultimo_pago = null) {
-    switch ($estado) {
-        case 'Pagado':
-            return ['texto' => 'Pagado', 'color' => 'success', 'icono' => 'check-circle'];
-        case 'Abonado':
-            return ['texto' => 'Abonado', 'color' => 'info', 'icono' => 'clock'];
-        case 'Pendiente':
-            $dias_mora = $fecha_ultimo_pago ? dias_desde($fecha_ultimo_pago) : 0;
-            
-            if ($dias_mora > 30) {
-                return ['texto' => 'Vencido (' . $dias_mora . 'd)', 'color' => 'danger', 'icono' => 'exclamation-triangle'];
-            } elseif ($dias_mora > 15) {
-                return ['texto' => 'Atrasado (' . $dias_mora . 'd)', 'color' => 'warning', 'icono' => 'exclamation-circle'];
-            } else {
-                return ['texto' => 'Pendiente', 'color' => 'warning', 'icono' => 'clock'];
-            }
-        default:
-            return ['texto' => $estado, 'color' => 'secondary', 'icono' => 'question-circle'];
+function estado_pago_venta($total, $pagado) {
+    if ($pagado >= $total && $total > 0) {
+        return ['texto' => 'Pagado', 'color' => 'success', 'icono' => 'check-circle'];
+    } elseif ($pagado > 0) {
+        return ['texto' => 'Abonado', 'color' => 'info', 'icono' => 'clock'];
+    } else {
+        return ['texto' => 'Pendiente', 'color' => 'danger', 'icono' => 'exclamation-triangle'];
     }
 }
 
@@ -78,78 +68,12 @@ function validar_rif($rif) {
 }
 
 /**
- * Generar código único para transacción
- */
-function generar_codigo($tipo = 'VENTA', $id = 0) {
-    $prefijo = '';
-    
-    switch ($tipo) {
-        case 'VENTA': $prefijo = 'VEN'; break;
-        case 'ABONO': $prefijo = 'ABO'; break;
-        case 'PRODUCTO': $prefijo = 'PRO'; break;
-        case 'CLIENTE': $prefijo = 'CLI'; break;
-        default: $prefijo = 'DOC';
-    }
-    
-    $fecha = date('Ymd');
-    $id_formateado = str_pad($id, 6, '0', STR_PAD_LEFT);
-    
-    return $prefijo . '-' . $fecha . '-' . $id_formateado;
-}
-
-/**
- * Enviar notificación (simulada)
- */
-function enviar_notificacion($cliente_id, $tipo, $mensaje) {
-    global $pdo;
-    
-    // En una implementación real, aquí se integraría con WhatsApp, Email, SMS, etc.
-    // Por ahora, solo registramos en la base de datos
-    
-    try {
-        $sql = "INSERT INTO notificaciones (id_cliente, tipo, mensaje, fecha_envio, estado) 
-                VALUES (:cliente, :tipo, :mensaje, NOW(), 'PENDIENTE')";
-        
-        $stmt = $pdo->prepare($sql);
-        $stmt->execute([
-            ':cliente' => $cliente_id,
-            ':tipo' => $tipo,
-            ':mensaje' => $mensaje
-        ]);
-        
-        return true;
-    } catch (Exception $e) {
-        error_log("Error enviando notificación: " . $e->getMessage());
-        return false;
-    }
-}
-
-/**
- * Calcular porcentaje de progreso
- */
-function calcular_porcentaje($actual, $total) {
-    if ($total <= 0) return 0;
-    return min(100, ($actual / $total) * 100);
-}
-
-/**
- * Obtener color para porcentaje
- */
-function color_porcentaje($porcentaje) {
-    if ($porcentaje >= 80) return 'danger';
-    if ($porcentaje >= 60) return 'warning';
-    if ($porcentaje >= 40) return 'info';
-    return 'success';
-}
-
-/**
  * Sanitizar entrada de datos
  */
 function sanitizar($dato) {
     if (is_array($dato)) {
         return array_map('sanitizar', $dato);
     }
-    
     return htmlspecialchars(trim($dato), ENT_QUOTES, 'UTF-8');
 }
 
@@ -157,53 +81,59 @@ function sanitizar($dato) {
  * Verificar permisos de usuario (simplificado)
  */
 function tiene_permiso($permiso) {
-    // En una implementación real, verificaría contra roles de usuario
-    // Por ahora, todos los usuarios tienen acceso completo
-    return true;
+    return true; // Acceso total por ahora
 }
+
+/* ==========================================================================
+   FUNCIONES DEL DASHBOARD (UNIFICADAS A PDO)
+   ========================================================================== */
+
+/**
+ * Obtener Deuda Total de todos los clientes
+ */
 function obtenerDeudaTotal() {
-    global $conexion;
-    $query = "SELECT SUM(deuda) as total FROM clientes WHERE estado = 'Activo' OR estado = 'Moroso'";
-    $result = mysqli_query($conexion, $query);
-    $row = mysqli_fetch_assoc($result);
-    return $row['total'] ?? 0;
+    global $pdo;
+    $sql = "SELECT SUM(saldo_dinero_usd) FROM cuentas_por_cobrar";
+    return $pdo->query($sql)->fetchColumn() ?? 0;
 }
 
-// Obtener número de clientes morosos
+/**
+ * Obtener número de clientes con deuda pendiente
+ */
 function obtenerClientesMorosos() {
-    global $conexion;
-    $query = "SELECT COUNT(*) as total FROM clientes WHERE deuda > 0 AND (estado = 'Activo' OR estado = 'Moroso')";
-    $result = mysqli_query($conexion, $query);
-    $row = mysqli_fetch_assoc($result);
-    return $row['total'] ?? 0;
+    global $pdo;
+    $sql = "SELECT COUNT(DISTINCT id_cliente) FROM cuentas_por_cobrar WHERE saldo_dinero_usd > 0";
+    return $pdo->query($sql)->fetchColumn() ?? 0;
 }
 
-// Obtener ventas de hoy
+/**
+ * Obtener sumatoria de ventas realizadas hoy
+ */
 function obtenerVentasHoy() {
-    global $conexion;
+    global $pdo;
     $hoy = date('Y-m-d');
-    $query = "SELECT SUM(total) as total FROM ventas WHERE fecha = '$hoy' AND estado = 'Completado'";
-    $result = mysqli_query($conexion, $query);
-    $row = mysqli_fetch_assoc($result);
-    return $row['total'] ?? 0;
+    $sql = "SELECT SUM(total_venta) FROM ventas WHERE DATE(fecha_venta) = ?";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute([$hoy]);
+    return $stmt->fetchColumn() ?? 0;
 }
 
-// Obtener productos con stock bajo
+/**
+ * Obtener cantidad de productos con stock crítico
+ */
 function obtenerStockBajo() {
-    global $conexion;
-    $query = "SELECT COUNT(*) as total FROM productos WHERE stock <= stock_minimo";
-    $result = mysqli_query($conexion, $query);
-    $row = mysqli_fetch_assoc($result);
-    return $row['total'] ?? 0;
+    global $pdo;
+    // Se considera bajo si es menor o igual a 10 cajas
+    $sql = "SELECT COUNT(*) FROM productos WHERE stock_lleno <= 10";
+    return $pdo->query($sql)->fetchColumn() ?? 0;
 }
 
-// Obtener vacíos pendientes
+/**
+ * Obtener total de envases vacíos que deben los clientes
+ */
 function obtenerVaciosPendientes() {
-    global $conexion;
-    $query = "SELECT SUM(vacios) as total FROM clientes WHERE vacios > 0";
-    $result = mysqli_query($conexion, $query);
-    $row = mysqli_fetch_assoc($result);
-    return $row['total'] ?? 0;
+    global $pdo;
+    $sql = "SELECT SUM(saldo_vacios) FROM cuentas_por_cobrar WHERE saldo_vacios > 0";
+    return $pdo->query($sql)->fetchColumn() ?? 0;
 }
 ?>
-

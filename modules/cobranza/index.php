@@ -4,22 +4,33 @@ $page_title = "Gestión de Cobranza";
 include '../../config/db.php';
 include '../../includes/header.php';
 
-// Filtrar por cliente si viene por parámetro
+// Filtrar por cliente
 $cliente_filtro = isset($_GET['cliente']) ? intval($_GET['cliente']) : 0;
 
-// Consulta: Traer clientes que deban algo
+// --- CORRECCIÓN MATEMÁTICA DE RAÍZ ---
+// La fórmula infalible: Deuda = (Suma Ventas) - (Suma Abonos)
 $sql = "SELECT c.id_cliente, c.nombre_cliente, c.telefono, c.tipo_cliente,
-               cc.saldo_dinero_usd, cc.saldo_vacios, cc.ultima_actualizacion, cc.limite_credito,
+               (
+                 (SELECT COALESCE(SUM(total_monto_usd), 0) FROM ventas WHERE id_cliente = c.id_cliente) - 
+                 (SELECT COALESCE(SUM(monto_abonado_usd), 0) FROM abonos WHERE id_cliente = c.id_cliente)
+               ) as saldo_dinero_usd,
+               (
+                 (SELECT COALESCE(SUM(total_vacios_despachados), 0) FROM ventas WHERE id_cliente = c.id_cliente) - 
+                 (SELECT COALESCE(SUM(vacios_devueltos), 0) FROM abonos WHERE id_cliente = c.id_cliente)
+               ) as saldo_vacios,
+               (SELECT MAX(fecha_venta) FROM ventas WHERE id_cliente = c.id_cliente) as ultima_actualizacion, 
+               cc.limite_credito,
                (SELECT COUNT(*) FROM ventas v WHERE v.id_cliente = c.id_cliente AND v.estado_pago != 'Pagado') as ventas_pendientes
         FROM clientes c
-        JOIN cuentas_por_cobrar cc ON c.id_cliente = cc.id_cliente
-        WHERE (cc.saldo_dinero_usd > 0 OR cc.saldo_vacios > 0)";
-        
+        LEFT JOIN cuentas_por_cobrar cc ON c.id_cliente = cc.id_cliente
+        WHERE EXISTS (SELECT 1 FROM ventas WHERE id_cliente = c.id_cliente)
+        HAVING saldo_dinero_usd > 0.01 OR saldo_vacios > 0"; // Usamos HAVING para filtrar el resultado calculado
+
 if ($cliente_filtro > 0) {
     $sql .= " AND c.id_cliente = $cliente_filtro";
 }
 
-$sql .= " ORDER BY cc.saldo_dinero_usd DESC";
+$sql .= " ORDER BY saldo_dinero_usd DESC";
 
 $stmt = $pdo->query($sql);
 ?>
@@ -39,7 +50,6 @@ $stmt = $pdo->query($sql);
     </div>
 </div>
 
-<!-- Filtros -->
 <div class="card mb-4">
     <div class="card-body">
         <div class="row g-2">
@@ -70,17 +80,28 @@ $stmt = $pdo->query($sql);
     </div>
 </div>
 
-<!-- Resumen de deudas -->
 <div class="row mb-4">
+    <?php 
+    // Cálculos globales usando la misma lógica matemática
+    $global_ventas = $pdo->query("SELECT SUM(total_monto_usd) FROM ventas")->fetchColumn() ?? 0;
+    $global_abonos = $pdo->query("SELECT SUM(monto_abonado_usd) FROM abonos")->fetchColumn() ?? 0;
+    $deuda_total_real = $global_ventas - $global_abonos;
+    
+    $clientes_deudores_real = $stmt->rowCount(); // Usamos el conteo de la consulta principal
+    
+    $v_salida = $pdo->query("SELECT SUM(total_vacios_despachados) FROM ventas")->fetchColumn() ?? 0;
+    $v_entrada = $pdo->query("SELECT SUM(vacios_devueltos) FROM abonos")->fetchColumn() ?? 0;
+    $vacios_pendientes = $v_salida - $v_entrada;
+    
+    $cobrado_hoy = $pdo->query("SELECT COALESCE(SUM(monto_abonado_usd), 0) FROM abonos WHERE DATE(fecha_abono) = CURDATE()")->fetchColumn();
+    ?>
+
     <div class="col-md-3">
         <div class="card kpi-card kpi-danger">
             <div class="card-body text-center">
                 <h5 class="card-title">Deuda Total</h5>
-                <?php 
-                $deuda_total = $pdo->query("SELECT SUM(saldo_dinero_usd) as total FROM cuentas_por_cobrar WHERE saldo_dinero_usd > 0")->fetchColumn() ?? 0;
-                ?>
-                <h2>$<?php echo number_format($deuda_total, 2); ?></h2>
-                <p class="card-text">Total adeudado por clientes</p>
+                <h2>$<?php echo number_format($deuda_total_real, 2); ?></h2>
+                <p class="card-text">Total adeudado real</p>
             </div>
         </div>
     </div>
@@ -89,10 +110,7 @@ $stmt = $pdo->query($sql);
         <div class="card kpi-card kpi-warning">
             <div class="card-body text-center">
                 <h5 class="card-title">Clientes Deudores</h5>
-                <?php 
-                $clientes_deudores = $pdo->query("SELECT COUNT(DISTINCT id_cliente) as total FROM cuentas_por_cobrar WHERE saldo_dinero_usd > 0")->fetchColumn() ?? 0;
-                ?>
-                <h2><?php echo number_format($clientes_deudores); ?></h2>
+                <h2><?php echo number_format($clientes_deudores_real); ?></h2>
                 <p class="card-text">Clientes con deuda activa</p>
             </div>
         </div>
@@ -102,9 +120,6 @@ $stmt = $pdo->query($sql);
         <div class="card kpi-card kpi-primary">
             <div class="card-body text-center">
                 <h5 class="card-title">Vacíos Pendientes</h5>
-                <?php 
-                $vacios_pendientes = $pdo->query("SELECT SUM(saldo_vacios) as total FROM cuentas_por_cobrar WHERE saldo_vacios > 0")->fetchColumn() ?? 0;
-                ?>
                 <h2><?php echo number_format($vacios_pendientes); ?></h2>
                 <p class="card-text">Cajas por recuperar</p>
             </div>
@@ -115,17 +130,13 @@ $stmt = $pdo->query($sql);
         <div class="card kpi-card kpi-success">
             <div class="card-body text-center">
                 <h5 class="card-title">Cobrado Hoy</h5>
-                <?php 
-                $cobrado_hoy = $pdo->query("SELECT COALESCE(SUM(monto_abonado_usd), 0) as total FROM abonos WHERE DATE(fecha_abono) = CURDATE()")->fetchColumn();
-                ?>
                 <h2>$<?php echo number_format($cobrado_hoy, 2); ?></h2>
-                <p class="card-text">Recaudado en el día</p>
+                <p class="card-text">Recaudado hoy</p>
             </div>
         </div>
     </div>
 </div>
 
-<!-- Tabla de clientes deudores -->
 <div class="card shadow-sm">
     <div class="card-header bg-danger text-white">
         <h5 class="mb-0"><i class="bi bi-alarm"></i> Lista de Clientes con Deuda</h5>
@@ -145,7 +156,10 @@ $stmt = $pdo->query($sql);
                     </tr>
                 </thead>
                 <tbody>
-                    <?php while($row = $stmt->fetch(PDO::FETCH_ASSOC)): 
+                    <?php 
+                    // Reiniciamos el cursor porque usamos rowCount arriba
+                    $stmt->execute();
+                    while($row = $stmt->fetch(PDO::FETCH_ASSOC)): 
                         $dias_mora = 0;
                         if ($row['ultima_actualizacion']) {
                             $fecha_ultima = new DateTime($row['ultima_actualizacion']);
@@ -171,12 +185,6 @@ $stmt = $pdo->query($sql);
                             <span class="badge bg-<?php echo $row['tipo_cliente'] == 'Mayorista' ? 'primary' : 'secondary'; ?>">
                                 <?php echo $row['tipo_cliente']; ?>
                             </span>
-                            <?php if($dias_mora > 0): ?>
-                                <br>
-                                <small class="text-<?php echo $dias_mora > 30 ? 'danger' : ($dias_mora > 15 ? 'warning' : 'muted'); ?>">
-                                    <?php echo $dias_mora; ?> días
-                                </small>
-                            <?php endif; ?>
                         </td>
                         <td class="text-end">
                             <span class="text-danger fw-bold">$<?php echo number_format($row['saldo_dinero_usd'], 2); ?></span>
@@ -188,7 +196,6 @@ $stmt = $pdo->query($sql);
                                          style="width: <?php echo min($porcentaje, 100); ?>%">
                                     </div>
                                 </div>
-                                <small class="text-muted">Límite: $<?php echo number_format($row['limite_credito'], 2); ?></small>
                             <?php endif; ?>
                         </td>
                         <td class="text-center">
@@ -199,33 +206,21 @@ $stmt = $pdo->query($sql);
                             <?php endif; ?>
                         </td>
                         <td class="text-center">
-                            <?php if($row['ventas_pendientes'] > 0): ?>
-                                <span class="badge bg-danger"><?php echo $row['ventas_pendientes']; ?></span>
-                            <?php else: ?>
-                                <span class="text-muted">0</span>
-                            <?php endif; ?>
+                            <span class="badge bg-secondary"><?php echo $row['ventas_pendientes']; ?></span>
                         </td>
                         <td class="small">
-                            <?php echo date("d/m/Y", strtotime($row['ultima_actualizacion'])); ?><br>
-                            <span class="text-muted"><?php echo date("H:i", strtotime($row['ultima_actualizacion'])); ?></span>
+                            <?php echo $row['ultima_actualizacion'] ? date("d/m/Y H:i", strtotime($row['ultima_actualizacion'])) : 'Sin datos'; ?>
                         </td>
                         <td class="text-center">
                             <div class="btn-group" role="group">
-                                <button class="btn btn-sm btn-success" 
-                                        data-bs-toggle="modal" 
-                                        data-bs-target="#modalAbono"
-                                        onclick="prepararAbono(<?php echo $row['id_cliente']; ?>, '<?php echo addslashes($row['nombre_cliente']); ?>', <?php echo $row['saldo_dinero_usd']; ?>, <?php echo $row['saldo_vacios']; ?>)"
-                                        title="Registrar pago">
+                                <button class="btn btn-sm btn-success" data-bs-toggle="modal" data-bs-target="#modalAbono"
+                                        onclick="prepararAbono(<?php echo $row['id_cliente']; ?>, '<?php echo addslashes($row['nombre_cliente']); ?>', <?php echo $row['saldo_dinero_usd']; ?>, <?php echo $row['saldo_vacios']; ?>)">
                                     <i class="bi bi-wallet2"></i>
                                 </button>
-                                <a href="../clientes/perfil.php?id=<?php echo $row['id_cliente']; ?>" 
-                                   class="btn btn-sm btn-outline-primary"
-                                   title="Ver perfil">
+                                <a href="../clientes/perfil.php?id=<?php echo $row['id_cliente']; ?>" class="btn btn-sm btn-outline-primary">
                                     <i class="bi bi-eye"></i>
                                 </a>
-                                <a href="../ventas/index.php?cliente=<?php echo $row['id_cliente']; ?>" 
-                                   class="btn btn-sm btn-outline-warning"
-                                   title="Nueva venta">
+                                <a href="../ventas/index.php?cliente=<?php echo $row['id_cliente']; ?>" class="btn btn-sm btn-outline-warning">
                                     <i class="bi bi-cart-plus"></i>
                                 </a>
                             </div>
@@ -246,7 +241,6 @@ $stmt = $pdo->query($sql);
     </div>
 </div>
 
-<!-- Gráfico de deudas por cliente -->
 <div class="card mt-4">
     <div class="card-header bg-info text-white">
         <h5 class="mb-0"><i class="bi bi-graph-up"></i> Distribución de Deudas</h5>
@@ -256,7 +250,6 @@ $stmt = $pdo->query($sql);
     </div>
 </div>
 
-<!-- Modal para registrar abono -->
 <div class="modal fade" id="modalAbono" tabindex="-1">
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
@@ -267,7 +260,6 @@ $stmt = $pdo->query($sql);
           </div>
           <div class="modal-body">
             <input type="hidden" name="id_cliente" id="abonoClienteId">
-            
             <div class="alert alert-primary">
                 <h5 class="mb-2" id="abonoClienteNombre">Cliente</h5>
                 <div class="row">
@@ -281,91 +273,48 @@ $stmt = $pdo->query($sql);
                     </div>
                 </div>
             </div>
-            
             <div class="row">
                 <div class="col-md-6">
                     <div class="card mb-3">
-                        <div class="card-header bg-success text-white">
-                            <h6 class="mb-0"><i class="bi bi-cash-coin"></i> Pago en Dinero</h6>
-                        </div>
+                        <div class="card-header bg-success text-white"><h6 class="mb-0">Pago en Dinero</h6></div>
                         <div class="card-body">
-                            <div class="mb-3">
-                                <label class="form-label">Monto a Pagar ($)</label>
-                                <input type="number" step="0.01" name="monto_abono" id="montoAbono" 
-                                       class="form-control" placeholder="0.00" 
-                                       oninput="calcularSaldoRestante()">
-                            </div>
-                            
-                            <div class="mb-3">
-                                <label class="form-label">Método de Pago</label>
-                                <select name="metodo" class="form-select">
-                                    <option value="Efectivo">Efectivo ($)</option>
-                                    <option value="Pago Móvil">Pago Móvil (Bs)</option>
-                                    <option value="Transferencia">Transferencia Bancaria</option>
-                                    <option value="Zelle">Zelle</option>
-                                    <option value="Cheque">Cheque</option>
-                                </select>
-                            </div>
-                            
-                            <div class="mb-3">
-                                <label class="form-label">Referencia / N° de Comprobante</label>
-                                <input type="text" name="referencia" class="form-control" 
-                                       placeholder="Ej: TRANSFER-001, PM-123456">
-                            </div>
+                            <label class="form-label">Monto a Pagar ($)</label>
+                            <input type="number" step="0.01" name="monto_abono" id="montoAbono" class="form-control" oninput="calcularSaldoRestante()">
+                            <label class="form-label mt-2">Método</label>
+                            <select name="metodo" class="form-select">
+                                <option value="Efectivo">Efectivo ($)</option>
+                                <option value="Pago Móvil">Pago Móvil (Bs)</option>
+                                <option value="Transferencia">Transferencia</option>
+                                <option value="Zelle">Zelle</option>
+                            </select>
+                            <label class="form-label mt-2">Referencia</label>
+                            <input type="text" name="referencia" class="form-control">
                         </div>
                     </div>
                 </div>
-                
                 <div class="col-md-6">
                     <div class="card mb-3">
-                        <div class="card-header bg-warning text-dark">
-                            <h6 class="mb-0"><i class="bi bi-box-seam"></i> Devolución de Vacíos</h6>
-                        </div>
+                        <div class="card-header bg-warning text-dark"><h6 class="mb-0">Devolución de Vacíos</h6></div>
                         <div class="card-body">
-                            <div class="mb-3">
-                                <label class="form-label">Vacíos Devueltos</label>
-                                <input type="number" name="vacios_devueltos" id="vaciosDevueltos" 
-                                       class="form-control" placeholder="0" 
-                                       oninput="calcularVaciosRestantes()">
-                            </div>
-                            
-                            <div class="mb-3">
-                                <label class="form-label">Estado de los Vacíos</label>
-                                <select name="estado_vacios" class="form-select">
-                                    <option value="BUENO">Buen estado</option>
-                                    <option value="REGULAR">Estado regular</option>
-                                    <option value="MALO">Mal estado / Roto</option>
-                                </select>
-                            </div>
-                            
-                            <div class="mb-3">
-                                <label class="form-label">Observaciones</label>
-                                <textarea name="observaciones" class="form-control" rows="2" 
-                                          placeholder="Observaciones sobre la devolución..."></textarea>
-                            </div>
+                            <label class="form-label">Vacíos Devueltos</label>
+                            <input type="number" name="vacios_devueltos" id="vaciosDevueltos" class="form-control" oninput="calcularVaciosRestantes()">
+                            <label class="form-label mt-2">Observaciones</label>
+                            <textarea name="observaciones" class="form-control" rows="2"></textarea>
                         </div>
                     </div>
                 </div>
             </div>
             
-            <!-- Resumen -->
-            <div class="card">
-                <div class="card-header bg-info text-white">
-                    <h6 class="mb-0"><i class="bi bi-calculator"></i> Resumen del Pago</h6>
-                </div>
+            <div class="card bg-light">
                 <div class="card-body">
-                    <div class="row">
-                        <div class="col-md-4 text-center">
-                            <small>Saldo después del pago:</small><br>
-                            <span id="saldoRestante" class="fw-bold fs-4 text-danger">$0.00</span>
+                    <div class="row text-center">
+                        <div class="col-6">
+                            <small>Nuevo Saldo:</small><br>
+                            <strong id="saldoRestante" class="fs-5 text-danger">$0.00</strong>
                         </div>
-                        <div class="col-md-4 text-center">
-                            <small>Vacios después de devolución:</small><br>
-                            <span id="vaciosRestantes" class="fw-bold fs-4 text-warning">0</span>
-                        </div>
-                        <div class="col-md-4 text-center">
-                            <small>Fecha del pago:</small><br>
-                            <span class="fw-bold"><?php echo date('d/m/Y'); ?></span>
+                        <div class="col-6">
+                            <small>Nuevos Vacíos:</small><br>
+                            <strong id="vaciosRestantes" class="fs-5 text-warning">0</strong>
                         </div>
                     </div>
                 </div>
@@ -380,190 +329,78 @@ $stmt = $pdo->query($sql);
   </div>
 </div>
 
-<!-- Modal para ver historial de pagos -->
-<div class="modal fade" id="modalHistorial" tabindex="-1">
-  <div class="modal-dialog modal-xl">
-    <div class="modal-content">
-      <!-- Se carga dinámicamente -->
-    </div>
-  </div>
-</div>
-
 <script>
-// Datos para el gráfico
+// --- GRAFICO Y FUNCIONES JS ---
 <?php
-$clientes_deuda = $pdo->query("
-    SELECT c.nombre_cliente, cc.saldo_dinero_usd
-    FROM clientes c
-    JOIN cuentas_por_cobrar cc ON c.id_cliente = cc.id_cliente
-    WHERE cc.saldo_dinero_usd > 0
-    ORDER BY cc.saldo_dinero_usd DESC
-    LIMIT 10
-")->fetchAll();
-
+// Datos para el gráfico usando la misma lógica matemática
+$sqlGrafico = "SELECT c.nombre_cliente, 
+               ((SELECT COALESCE(SUM(total_monto_usd), 0) FROM ventas WHERE id_cliente = c.id_cliente) - 
+                (SELECT COALESCE(SUM(monto_abonado_usd), 0) FROM abonos WHERE id_cliente = c.id_cliente)) as deuda
+               FROM clientes c HAVING deuda > 0 ORDER BY deuda DESC LIMIT 10";
+$clientes_deuda = $pdo->query($sqlGrafico)->fetchAll();
 $nombres = json_encode(array_column($clientes_deuda, 'nombre_cliente'));
-$deudas = json_encode(array_column($clientes_deuda, 'saldo_dinero_usd'));
+$deudas = json_encode(array_column($clientes_deuda, 'deuda'));
 ?>
 
-// Gráfico de deudas
 const ctxDeudas = document.getElementById('deudasChart').getContext('2d');
-const deudasChart = new Chart(ctxDeudas, {
+new Chart(ctxDeudas, {
     type: 'bar',
     data: {
         labels: <?php echo $nombres; ?>,
-        datasets: [{
-            label: 'Deuda ($)',
-            data: <?php echo $deudas; ?>,
-            backgroundColor: 'rgba(231, 76, 60, 0.7)',
-            borderColor: 'rgba(231, 76, 60, 1)',
-            borderWidth: 1
-        }]
+        datasets: [{ label: 'Deuda ($)', data: <?php echo $deudas; ?>, backgroundColor: '#e74c3c' }]
     },
-    options: {
-        responsive: true,
-        scales: {
-            y: {
-                beginAtZero: true,
-                ticks: {
-                    callback: function(value) {
-                        return '$' + value;
-                    }
-                }
-            },
-            x: {
-                ticks: {
-                    maxRotation: 45,
-                    minRotation: 45
-                }
-            }
-        },
-        plugins: {
-            tooltip: {
-                callbacks: {
-                    label: function(context) {
-                        return 'Deuda: $' + context.parsed.y.toFixed(2);
-                    }
-                }
-            }
-        }
-    }
+    options: { responsive: true }
 });
 
-// Función para preparar el modal de abono
 function prepararAbono(id, nombre, dinero, vacios) {
     document.getElementById('abonoClienteId').value = id;
     document.getElementById('abonoClienteNombre').innerText = nombre;
     document.getElementById('deudaDineroActual').innerText = "$" + parseFloat(dinero).toFixed(2);
     document.getElementById('deudaVaciosActual').innerText = vacios;
-    
-    // Resetear valores
     document.getElementById('montoAbono').value = '';
     document.getElementById('vaciosDevueltos').value = '';
-    
-    // Calcular valores iniciales
     calcularSaldoRestante();
     calcularVaciosRestantes();
 }
 
-// Función para calcular saldo restante
 function calcularSaldoRestante() {
-    const deudaActual = parseFloat(document.getElementById('deudaDineroActual').textContent.replace('$', '')) || 0;
-    const montoAbono = parseFloat(document.getElementById('montoAbono').value) || 0;
-    const saldoRestante = deudaActual - montoAbono;
-    
-    const elemento = document.getElementById('saldoRestante');
-    elemento.textContent = "$" + saldoRestante.toFixed(2);
-    
-    if (saldoRestante <= 0) {
-        elemento.className = "fw-bold fs-4 text-success";
-    } else if (saldoRestante <= (deudaActual * 0.3)) {
-        elemento.className = "fw-bold fs-4 text-warning";
-    } else {
-        elemento.className = "fw-bold fs-4 text-danger";
-    }
+    const deuda = parseFloat(document.getElementById('deudaDineroActual').innerText.replace('$','')) || 0;
+    const abono = parseFloat(document.getElementById('montoAbono').value) || 0;
+    const resto = deuda - abono;
+    document.getElementById('saldoRestante').innerText = "$" + resto.toFixed(2);
+    document.getElementById('saldoRestante').className = resto <= 0.01 ? "fs-5 fw-bold text-success" : "fs-5 fw-bold text-danger";
 }
 
-// Función para calcular vacíos restantes
 function calcularVaciosRestantes() {
-    const vaciosActual = parseInt(document.getElementById('deudaVaciosActual').textContent) || 0;
-    const vaciosDevueltos = parseInt(document.getElementById('vaciosDevueltos').value) || 0;
-    const vaciosRestantes = vaciosActual - vaciosDevueltos;
-    
-    const elemento = document.getElementById('vaciosRestantes');
-    elemento.textContent = vaciosRestantes;
-    
-    if (vaciosRestantes <= 0) {
-        elemento.className = "fw-bold fs-4 text-success";
-    } else if (vaciosRestantes <= (vaciosActual * 0.3)) {
-        elemento.className = "fw-bold fs-4 text-warning";
-    } else {
-        elemento.className = "fw-bold fs-4 text-danger";
-    }
+    const deuda = parseInt(document.getElementById('deudaVaciosActual').innerText) || 0;
+    const abono = parseInt(document.getElementById('vaciosDevueltos').value) || 0;
+    document.getElementById('vaciosRestantes').innerText = deuda - abono;
 }
 
-// Función para filtrar clientes
+// Filtros
 function filtrarClientes() {
-    const tipo = $('#filterTipo').val();
-    const deuda = $('#filterDeuda').val();
-    const search = $('#searchCliente').val().toLowerCase();
-    
-    $('#tablaDeudores tbody tr').each(function() {
-        const tipoCliente = $(this).find('td:nth-child(2) span.badge').text();
-        const montoDeuda = parseFloat($(this).find('td:nth-child(3) span').text().replace('$', '').replace(',', ''));
-        const nombreCliente = $(this).find('td:nth-child(1) strong').text().toLowerCase();
-        
-        let show = true;
-        
-        // Filtro por tipo
-        if (tipo && tipoCliente !== tipo) show = false;
-        
-        // Filtro por monto de deuda
-        if (deuda === 'alta' && montoDeuda <= 500) show = false;
-        if (deuda === 'media' && (montoDeuda <= 100 || montoDeuda > 500)) show = false;
-        if (deuda === 'baja' && montoDeuda >= 100) show = false;
-        
-        // Filtro por búsqueda
-        if (search && !nombreCliente.includes(search)) show = false;
-        
-        if (show) {
-            $(this).show();
-        } else {
-            $(this).hide();
-        }
+    const texto = document.getElementById('searchCliente').value.toLowerCase();
+    const filas = document.querySelectorAll('#tablaDeudores tbody tr');
+    filas.forEach(fila => {
+        const nombre = fila.querySelector('td:nth-child(1)').innerText.toLowerCase();
+        fila.style.display = nombre.includes(texto) ? '' : 'none';
     });
 }
-
-// Función para resetear filtros
 function resetFiltros() {
-    $('#filterTipo').val('');
-    $('#filterDeuda').val('');
-    $('#searchCliente').val('');
-    $('#tablaDeudores tbody tr').show();
+    document.getElementById('searchCliente').value = '';
+    filtrarClientes();
 }
+</script>
 
-// Función para generar reporte de deudas
-function generarReporteDeudas() {
-    window.open('reporte_deudas.php', '_blank');
-}
-
-// Validar formulario de abono
-document.getElementById('formAbono').addEventListener('submit', function(e) {
-    const montoAbono = parseFloat(document.getElementById('montoAbono').value) || 0;
-    const vaciosDevueltos = parseInt(document.getElementById('vaciosDevueltos').value) || 0;
-    
-    if (montoAbono <= 0 && vaciosDevueltos <= 0) {
-        e.preventDefault();
-        alert('Debe registrar al menos un pago o devolución de vacíos.');
-        return;
-    }
-    
-    const deudaActual = parseFloat(document.getElementById('deudaDineroActual').textContent.replace('$', '')) || 0;
-    if (montoAbono > deudaActual) {
-        if (!confirm('El monto a pagar es mayor que la deuda actual. ¿Desea continuar?')) {
-            e.preventDefault();
-        }
-    }
+<?php if(isset($_SESSION['swal_success'])): ?>
+<script>
+Swal.fire({
+  icon: 'success',
+  title: '¡Listo, Gordo!',
+  text: '<?php echo $_SESSION['swal_success']; ?>',
+  confirmButtonColor: '#28a745'
 });
 </script>
+<?php unset($_SESSION['swal_success']); endif; ?>
 
 <?php include '../../includes/footer.php'; ?>

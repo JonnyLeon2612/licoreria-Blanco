@@ -11,7 +11,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $total_vacios_esperados = intval($_POST['total_vacios_esperados']);
     $vacios_recibidos = intval($_POST['vacios_recibidos']);
     
-    // Decodificar el JSON de productos
+    // Decodificar el JSON de productos que viene con los PRECIOS EDITADOS
     $productos = json_decode($_POST['detalle_productos'], true);
 
     if (empty($productos)) {
@@ -41,26 +41,27 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             }
         }
 
-        // 2. Calcular Deudas
+        // 2. LÓGICA DE DEUDAS (Dinero y Vacíos)
         $deuda_dinero = 0;
         $deuda_vacios = 0;
         $estado = 'Pagado';
 
-        // Si pagó menos del total -> Deuda Dinero
+        // Si pagó menos del total -> Se genera deuda en $
         if ($monto_pagado < $total_venta) {
             $deuda_dinero = $total_venta - $monto_pagado;
             $estado = 'Pendiente';
         }
 
-        // Si entregó menos vacíos de los que se llevó -> Deuda Vacíos
+        // NUEVO: Lógica exacta de vacíos basada en el saldo real
+        // Si se llevan más de lo que entregan, la diferencia aumenta la deuda de vacíos
         if ($vacios_recibidos < $total_vacios_esperados) {
             $deuda_vacios = $total_vacios_esperados - $vacios_recibidos;
             if ($estado == 'Pagado') {
-                $estado = 'Abonado';
+                $estado = 'Abonado'; // Pagó el dinero pero debe envases
             }
         }
 
-        // 3. Validar límite de crédito si es cliente mayorista
+        // 3. Validar límite de crédito (Solo Mayoristas)
         $stmt = $pdo->prepare("
             SELECT c.tipo_cliente, cc.limite_credito, cc.saldo_dinero_usd 
             FROM clientes c 
@@ -74,14 +75,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $limite_credito = floatval($cliente_info['limite_credito']);
             $deuda_actual = floatval($cliente_info['saldo_dinero_usd']);
             
-            if (($deuda_actual + $deuda_dinero) > $limite_credito && $limite_credito > 0) {
-                throw new Exception("El cliente excede su límite de crédito. Límite: $" . number_format($limite_credito, 2) . 
-                                  ", Deuda actual: $" . number_format($deuda_actual, 2) . 
-                                  ", Nueva deuda: $" . number_format($deuda_dinero, 2));
+            if ($limite_credito > 0 && ($deuda_actual + $deuda_dinero) > $limite_credito) {
+                throw new Exception("Excede límite de crédito. Máximo: $" . number_format($limite_credito, 2));
             }
         }
 
-        // 4. Insertar Venta
+        // 4. Insertar la Venta
         $sqlVenta = "INSERT INTO ventas (id_cliente, total_monto_usd, total_vacios_despachados, estado_pago) 
                      VALUES (:cliente, :total, :vacios, :estado)";
         $stmt = $pdo->prepare($sqlVenta);
@@ -94,43 +93,40 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         
         $id_venta = $pdo->lastInsertId();
 
-        // 5. Insertar Detalle y Actualizar Stock
+        // 5. Detalle de Venta y Ajuste de Inventario
         $sqlDetalle = "INSERT INTO detalle_ventas (id_venta, id_producto, cantidad, precio_unitario) VALUES (?, ?, ?, ?)";
-        $sqlStock = "UPDATE productos SET stock_lleno = stock_lleno - ? WHERE id_producto = ?";
+        $sqlStockLleno = "UPDATE productos SET stock_lleno = stock_lleno - ? WHERE id_producto = ?";
+        $sqlStockVacio = "UPDATE productos SET stock_vacio = stock_vacio + ? WHERE id_producto = ?";
         
         $stmtDetalle = $pdo->prepare($sqlDetalle);
-        $stmtStock = $pdo->prepare($sqlStock);
+        $stmtLleno = $pdo->prepare($sqlStockLleno);
+        $stmtVacio = $pdo->prepare($sqlStockVacio);
 
         foreach ($productos as $item) {
-            // Guardar detalle
+            // USAMOS EL PRECIO QUE VIENE DEL CARRITO (EL EDITADO)
             $stmtDetalle->execute([
                 $id_venta, 
                 intval($item['id']), 
                 intval($item['cantidad']), 
-                floatval($item['precio'])
+                floatval($item['precio']) 
             ]);
             
-            // Restar inventario
-            $stmtStock->execute([
-                intval($item['cantidad']), 
-                intval($item['id'])
-            ]);
+            // Restar cajas llenas
+            $stmtLleno->execute([intval($item['cantidad']), intval($item['id'])]);
             
-            // Si el producto es retornable, sumar vacíos recibidos al stock de vacíos
+            // Si entregó vacíos, los sumamos al stock de vacíos de la empresa
             if ($item['esRetornable'] && $vacios_recibidos > 0) {
-                // Distribuir vacíos recibidos proporcionalmente entre productos retornables
+                // Cálculo proporcional simple para distribuir los vacíos recibidos
                 $proporcion = $item['cantidad'] / $total_vacios_esperados;
-                $vacios_para_este_producto = floor($vacios_recibidos * $proporcion);
+                $vacios_para_este = floor($vacios_recibidos * $proporcion);
                 
-                if ($vacios_para_este_producto > 0) {
-                    $sqlVaciar = "UPDATE productos SET stock_vacio = stock_vacio + ? WHERE id_producto = ?";
-                    $stmtVaciar = $pdo->prepare($sqlVaciar);
-                    $stmtVaciar->execute([$vacios_para_este_producto, intval($item['id'])]);
+                if ($vacios_para_este > 0) {
+                    $stmtVacio->execute([$vacios_para_este, intval($item['id'])]);
                 }
             }
         }
 
-        // 6. ACTUALIZAR CUENTAS POR COBRAR
+        // 6. ACTUALIZAR CUENTAS POR COBRAR (El motor de la cobranza)
         $sqlDeuda = "UPDATE cuentas_por_cobrar 
                      SET saldo_dinero_usd = saldo_dinero_usd + :dinero, 
                          saldo_vacios = saldo_vacios + :vacios,
@@ -144,39 +140,28 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             ':cliente' => $id_cliente
         ]);
 
-        // 7. Registrar abono si pagó algo
-        if ($monto_pagado > 0) {
-            $sqlAbono = "INSERT INTO abonos (id_cliente, id_venta, monto_abonado_usd, vacios_devueltos, metodo_pago) 
-                         VALUES (:cliente, :venta, :monto, :vacios, :metodo)";
+        // 7. Registrar el Abono inicial (si hubo pago en el momento)
+        if ($monto_pagado > 0 || $vacios_recibidos > 0) {
+            $sqlAbono = "INSERT INTO abonos (id_cliente, id_venta, monto_abonado_usd, vacios_devueltos, metodo_pago, observaciones) 
+                         VALUES (:cliente, :venta, :monto, :vacios, 'EFECTIVO', 'Pago inicial en venta')";
             $stmtAbono = $pdo->prepare($sqlAbono);
             $stmtAbono->execute([
                 ':cliente' => $id_cliente,
                 ':venta' => $id_venta,
                 ':monto' => $monto_pagado,
-                ':vacios' => $vacios_recibidos,
-                ':metodo' => 'EFECTIVO' // Por defecto
+                ':vacios' => $vacios_recibidos
             ]);
         }
 
         $pdo->commit();
         
-        // Guardar información para mostrar en comprobante
-        $_SESSION['venta_procesada'] = [
-            'id_venta' => $id_venta,
-            'id_cliente' => $id_cliente,
-            'total' => $total_venta,
-            'pagado' => $monto_pagado,
-            'deuda' => $deuda_dinero,
-            'vacios_pendientes' => $deuda_vacios
-        ];
-        
-        // Redirigir al comprobante
+        // Redirigir al nuevo comprobante estilo ticket
         header("Location: comprobante.php?id=" . $id_venta);
         exit();
 
     } catch (Exception $e) {
-        $pdo->rollBack();
-        $_SESSION['error'] = "Error en la transacción: " . $e->getMessage();
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        $_SESSION['error'] = "Error en venta: " . $e->getMessage();
         header("Location: index.php");
         exit();
     }

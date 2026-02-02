@@ -1,10 +1,11 @@
 <?php
 // modules/cobranza/guardar_abono.php
+session_start();
 include '../../config/db.php';
 
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $id_cliente = intval($_POST['id_cliente']);
-    $monto = !empty($_POST['monto_abono']) ? floatval($_POST['monto_abono']) : 0;
+    $monto_recibido = !empty($_POST['monto_abono']) ? floatval($_POST['monto_abono']) : 0;
     $vacios = !empty($_POST['vacios_devueltos']) ? intval($_POST['vacios_devueltos']) : 0;
     $metodo = $_POST['metodo'] ?? 'Efectivo';
     $referencia = $_POST['referencia'] ?? '';
@@ -14,133 +15,81 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     try {
         $pdo->beginTransaction();
 
-        // 1. Verificar deuda actual
-        $stmt = $pdo->prepare("SELECT saldo_dinero_usd, saldo_vacios FROM cuentas_por_cobrar WHERE id_cliente = ?");
-        $stmt->execute([$id_cliente]);
-        $deuda_actual = $stmt->fetch();
-        
-        if (!$deuda_actual) {
-            throw new Exception("Cliente no encontrado en cuentas por cobrar");
-        }
-
-        // 2. Validar montos (no permitir pagos mayores a la deuda sin confirmación)
-        $deuda_dinero = floatval($deuda_actual['saldo_dinero_usd']);
-        $deuda_vacios = intval($deuda_actual['saldo_vacios']);
-        
-        // Ajustar montos si exceden la deuda
-        $monto_ajustado = min($monto, $deuda_dinero);
-        $vacios_ajustados = min($vacios, $deuda_vacios);
-        
-        if ($monto > $deuda_dinero) {
-            $_SESSION['warning'] = "El monto pagado ($" . number_format($monto, 2) . ") excede la deuda actual ($" . number_format($deuda_dinero, 2) . "). Se registrará solo $" . number_format($monto_ajustado, 2);
-        }
-        
-        if ($vacios > $deuda_vacios) {
-            $_SESSION['warning'] = ($_SESSION['warning'] ?? '') . " Los vacíos devueltos (" . $vacios . ") exceden los pendientes (" . $deuda_vacios . "). Se registrarán solo " . $vacios_ajustados;
-        }
-
-        // 3. Registrar en Historial de Abonos
+        // 1. REGISTRAR EL NUEVO ABONO
+        // Guardamos el dinero que acaba de entrar
         $sqlHistorial = "INSERT INTO abonos (id_cliente, monto_abonado_usd, vacios_devueltos, metodo_pago, referencia, estado_vacios, observaciones) 
                          VALUES (:id, :monto, :vacios, :metodo, :ref, :estado, :obs)";
         $stmtHist = $pdo->prepare($sqlHistorial);
         $stmtHist->execute([
             ':id' => $id_cliente,
-            ':monto' => $monto_ajustado,
-            ':vacios' => $vacios_ajustados,
+            ':monto' => $monto_recibido,
+            ':vacios' => $vacios,
             ':metodo' => $metodo,
             ':ref' => $referencia,
             ':estado' => $estado_vacios,
             ':obs' => $observaciones
         ]);
 
-        $id_abono = $pdo->lastInsertId();
-
-        // 4. Actualizar vacíos en inventario si se devolvieron
-        if ($vacios_ajustados > 0) {
-            // Obtener productos retornables
-            $productos_retornables = $pdo->query("SELECT id_producto FROM productos WHERE es_retornable = 1")->fetchAll();
-            
-            if (count($productos_retornables) > 0) {
-                // Distribuir vacíos proporcionalmente entre productos retornables
-                $vacios_por_producto = floor($vacios_ajustados / count($productos_retornables));
-                $vacios_restantes = $vacios_ajustados % count($productos_retornables);
-                
-                foreach ($productos_retornables as $index => $producto) {
-                    $cantidad = $vacios_por_producto + ($index < $vacios_restantes ? 1 : 0);
-                    
-                    if ($cantidad > 0) {
-                        $sqlUpdateVaciar = "UPDATE productos SET stock_vacio = stock_vacio + ? WHERE id_producto = ?";
-                        $stmtUpdate = $pdo->prepare($sqlUpdateVaciar);
-                        $stmtUpdate->execute([$cantidad, $producto['id_producto']]);
-                    }
-                }
-            }
-        }
-
-        // 5. Restar de la Deuda Actual
-        $sqlUpdate = "UPDATE cuentas_por_cobrar 
-                      SET saldo_dinero_usd = GREATEST(0, saldo_dinero_usd - :monto),
-                          saldo_vacios = GREATEST(0, saldo_vacios - :vacios),
-                          ultima_actualizacion = NOW()
-                      WHERE id_cliente = :id";
+        // =================================================================================
+        // 2. CORRECCIÓN: BARRIDO HISTÓRICO (La Solución Definitiva)
+        // =================================================================================
         
-        $stmtUpd = $pdo->prepare($sqlUpdate);
-        $stmtUpd->execute([
-            ':monto' => $monto_ajustado,
-            ':vacios' => $vacios_ajustados,
-            ':id' => $id_cliente
-        ]);
+        // PASO A: Sumamos CUÁNTO DINERO ha pagado este cliente en toda su historia (incluyendo lo de hoy)
+        $stmtTotalPagado = $pdo->prepare("SELECT COALESCE(SUM(monto_abonado_usd), 0) FROM abonos WHERE id_cliente = ?");
+        $stmtTotalPagado->execute([$id_cliente]);
+        $bolsa_de_dinero = floatval($stmtTotalPagado->fetchColumn());
 
-        // 6. Actualizar estado de ventas si quedaron pagadas
-        if ($monto_ajustado > 0) {
-            // Obtener ventas pendientes del cliente
-            $ventas_pendientes = $pdo->prepare("
-                SELECT id_venta, total_monto_usd, 
-                       (SELECT COALESCE(SUM(monto_abonado_usd), 0) FROM abonos WHERE id_venta = ventas.id_venta) as total_abonado
-                FROM ventas 
-                WHERE id_cliente = ? AND estado_pago != 'Pagado'
-                ORDER BY fecha_venta ASC
-            ");
-            $ventas_pendientes->execute([$id_cliente]);
-            $ventas = $ventas_pendientes->fetchAll();
+        // PASO B: Traemos TODAS las ventas del cliente, desde la más vieja a la más nueva
+        $stmtVentas = $pdo->prepare("SELECT id_venta, total_monto_usd FROM ventas WHERE id_cliente = ? ORDER BY fecha_venta ASC");
+        $stmtVentas->execute([$id_cliente]);
+        $todas_las_ventas = $stmtVentas->fetchAll();
+
+        // PASO C: Repartimos la "bolsa de dinero" factura por factura
+        foreach ($todas_las_ventas as $v) {
+            $monto_factura = floatval($v['total_monto_usd']);
             
-            $monto_disponible = $monto_ajustado;
-            
-            foreach ($ventas as $venta) {
-                $saldo_pendiente = $venta['total_monto_usd'] - $venta['total_abonado'];
-                
-                if ($monto_disponible >= $saldo_pendiente && $saldo_pendiente > 0) {
-                    // Marcar venta como pagada
-                    $sqlUpdateVenta = "UPDATE ventas SET estado_pago = 'Pagado' WHERE id_venta = ?";
-                    $stmtVenta = $pdo->prepare($sqlUpdateVenta);
-                    $stmtVenta->execute([$venta['id_venta']]);
-                    
-                    $monto_disponible -= $saldo_pendiente;
-                }
+            // Tolerancia de 0.01 para evitar errores de decimales
+            if ($bolsa_de_dinero >= ($monto_factura - 0.01)) {
+                // Si la bolsa cubre esta factura completa:
+                $nuevo_estado = 'Pagado';
+                $bolsa_de_dinero -= $monto_factura; // Restamos lo que costó esta factura y seguimos a la siguiente
+            } elseif ($bolsa_de_dinero > 0.01) {
+                // Si queda algo de dinero pero NO alcanza para toda la factura:
+                $nuevo_estado = 'Abonado';
+                $bolsa_de_dinero = 0; // Se acabó el dinero
+            } else {
+                // Si la bolsa ya está vacía:
+                $nuevo_estado = 'Pendiente'; // Es deuda total
             }
+
+            // Actualizamos el estado real en la base de datos
+            $pdo->prepare("UPDATE ventas SET estado_pago = ? WHERE id_venta = ?")
+                ->execute([$nuevo_estado, $v['id_venta']]);
         }
+
+        // =================================================================================
+
+        // 3. ACTUALIZAR TABLA DE SALDOS (Por mantenimiento)
+        $pdo->prepare("UPDATE cuentas_por_cobrar 
+                       SET saldo_dinero_usd = GREATEST(0, saldo_dinero_usd - :monto), 
+                           saldo_vacios = GREATEST(0, saldo_vacios - :vacios), 
+                           ultima_actualizacion = NOW() 
+                       WHERE id_cliente = :id")
+            ->execute([
+                ':monto' => $monto_recibido, 
+                ':vacios' => $vacios, 
+                ':id' => $id_cliente
+            ]);
 
         $pdo->commit();
 
-        // 7. Obtener información del cliente para el mensaje
-        $stmtCliente = $pdo->prepare("SELECT nombre_cliente FROM clientes WHERE id_cliente = ?");
-        $stmtCliente->execute([$id_cliente]);
-        $cliente = $stmtCliente->fetch();
-        
-        $_SESSION['success'] = "Pago registrado exitosamente para " . $cliente['nombre_cliente'] . 
-                             ". Abono #" . str_pad($id_abono, 5, '0', STR_PAD_LEFT);
-        
-        if ($monto_ajustado < $monto || $vacios_ajustados < $vacios) {
-            $_SESSION['warning'] = ($_SESSION['warning'] ?? '') . 
-                                 " Se ajustaron los valores para no exceder la deuda actual.";
-        }
-
+        $_SESSION['swal_success'] = "Pago registrado. Las cuentas se han recalculado correctamente.";
         header("Location: index.php");
         exit();
 
     } catch (Exception $e) {
         $pdo->rollBack();
-        $_SESSION['error'] = "Error al registrar el pago: " . $e->getMessage();
+        $_SESSION['swal_error'] = "Error: " . $e->getMessage();
         header("Location: index.php");
         exit();
     }
