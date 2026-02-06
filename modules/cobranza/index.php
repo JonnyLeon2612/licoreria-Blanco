@@ -4,11 +4,10 @@ $page_title = "Gestión de Cobranza";
 include '../../config/db.php';
 include '../../includes/header.php';
 
-// Filtrar por cliente
+// Filtrar por cliente si viene por parámetro
 $cliente_filtro = isset($_GET['cliente']) ? intval($_GET['cliente']) : 0;
 
-// --- CORRECCIÓN MATEMÁTICA DE RAÍZ ---
-// La fórmula infalible: Deuda = (Suma Ventas) - (Suma Abonos)
+// Construcción inteligente de la consulta
 $sql = "SELECT c.id_cliente, c.nombre_cliente, c.telefono, c.tipo_cliente,
                (
                  (SELECT COALESCE(SUM(total_monto_usd), 0) FROM ventas WHERE id_cliente = c.id_cliente) - 
@@ -23,11 +22,16 @@ $sql = "SELECT c.id_cliente, c.nombre_cliente, c.telefono, c.tipo_cliente,
                (SELECT COUNT(*) FROM ventas v WHERE v.id_cliente = c.id_cliente AND v.estado_pago != 'Pagado') as ventas_pendientes
         FROM clientes c
         LEFT JOIN cuentas_por_cobrar cc ON c.id_cliente = cc.id_cliente
-        WHERE EXISTS (SELECT 1 FROM ventas WHERE id_cliente = c.id_cliente)
-        HAVING saldo_dinero_usd > 0.01 OR saldo_vacios > 0"; // Usamos HAVING para filtrar el resultado calculado
+        WHERE EXISTS (SELECT 1 FROM ventas WHERE id_cliente = c.id_cliente)";
 
+// 1. SI ESTAMOS BUSCANDO A ALGUIEN ESPECÍFICO, LO FILTRAMOS EN EL 'WHERE'
 if ($cliente_filtro > 0) {
     $sql .= " AND c.id_cliente = $cliente_filtro";
+}
+
+// 2. EL FILTRO 'HAVING' AHORA ES CONDICIONAL
+if ($cliente_filtro == 0) {
+    $sql .= " HAVING saldo_dinero_usd > 0.01 OR saldo_vacios > 0";
 }
 
 $sql .= " ORDER BY saldo_dinero_usd DESC";
@@ -82,12 +86,19 @@ $stmt = $pdo->query($sql);
 
 <div class="row mb-4">
     <?php 
-    // Cálculos globales usando la misma lógica matemática
     $global_ventas = $pdo->query("SELECT SUM(total_monto_usd) FROM ventas")->fetchColumn() ?? 0;
     $global_abonos = $pdo->query("SELECT SUM(monto_abonado_usd) FROM abonos")->fetchColumn() ?? 0;
     $deuda_total_real = $global_ventas - $global_abonos;
     
-    $clientes_deudores_real = $stmt->rowCount(); // Usamos el conteo de la consulta principal
+    // Contamos deudores reales (saldo > 0) para el KPI
+    $sqlDeudores = "SELECT COUNT(*) FROM (
+                        SELECT c.id_cliente, 
+                               ((SELECT COALESCE(SUM(total_monto_usd), 0) FROM ventas WHERE id_cliente = c.id_cliente) - 
+                                (SELECT COALESCE(SUM(monto_abonado_usd), 0) FROM abonos WHERE id_cliente = c.id_cliente)) as deuda
+                        FROM clientes c
+                        HAVING deuda > 0.01
+                    ) as t";
+    $clientes_deudores_real = $pdo->query($sqlDeudores)->fetchColumn();
     
     $v_salida = $pdo->query("SELECT SUM(total_vacios_despachados) FROM ventas")->fetchColumn() ?? 0;
     $v_entrada = $pdo->query("SELECT SUM(vacios_devueltos) FROM abonos")->fetchColumn() ?? 0;
@@ -157,8 +168,7 @@ $stmt = $pdo->query($sql);
                 </thead>
                 <tbody>
                     <?php 
-                    // Reiniciamos el cursor porque usamos rowCount arriba
-                    $stmt->execute();
+                    if($stmt->rowCount() > 0):
                     while($row = $stmt->fetch(PDO::FETCH_ASSOC)): 
                         $dias_mora = 0;
                         if ($row['ultima_actualizacion']) {
@@ -227,8 +237,7 @@ $stmt = $pdo->query($sql);
                         </td>
                     </tr>
                     <?php endwhile; ?>
-                    
-                    <?php if($stmt->rowCount() == 0): ?>
+                    <?php else: ?>
                         <tr>
                             <td colspan="7" class="text-center py-4 text-muted">
                                 <h4><i class="bi bi-emoji-smile"></i> ¡Excelente! No hay deudas pendientes.</h4>
@@ -304,7 +313,6 @@ $stmt = $pdo->query($sql);
                     </div>
                 </div>
             </div>
-            
             <div class="card bg-light">
                 <div class="card-body">
                     <div class="row text-center">
@@ -332,7 +340,6 @@ $stmt = $pdo->query($sql);
 <script>
 // --- GRAFICO Y FUNCIONES JS ---
 <?php
-// Datos para el gráfico usando la misma lógica matemática
 $sqlGrafico = "SELECT c.nombre_cliente, 
                ((SELECT COALESCE(SUM(total_monto_usd), 0) FROM ventas WHERE id_cliente = c.id_cliente) - 
                 (SELECT COALESCE(SUM(monto_abonado_usd), 0) FROM abonos WHERE id_cliente = c.id_cliente)) as deuda
@@ -389,6 +396,12 @@ function filtrarClientes() {
 function resetFiltros() {
     document.getElementById('searchCliente').value = '';
     filtrarClientes();
+}
+
+// --- FUNCIÓN DEL REPORTE (AHORA FUERA DEL IF DE PHP) ---
+function generarReporteDeudas() {
+    // Abre el reporte en una pestaña nueva
+    window.open('reporte_deudas.php', '_blank');
 }
 </script>
 

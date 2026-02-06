@@ -7,18 +7,37 @@ include '../../includes/header.php';
 // Consultar productos
 $query = "SELECT * FROM productos ORDER BY stock_lleno ASC, nombre_producto ASC";
 $stmt = $pdo->query($query);
+// Guardamos los datos en un array para poder usarlos dos veces (uno para calcular, otro para la tabla)
+$productos_data = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-// Estadísticas
+// Estadísticas base
 $estadisticas = $pdo->query("
     SELECT 
         COUNT(*) as total_productos,
         SUM(stock_lleno) as total_stock_lleno,
-        SUM(stock_vacio) as total_stock_vacio,
+        0 as total_stock_vacio, 
         SUM(stock_lleno * precio_venta_usd) as valor_inventario,
         SUM(CASE WHEN stock_lleno < 10 THEN 1 ELSE 0 END) as productos_bajo_stock,
         SUM(CASE WHEN stock_lleno = 0 THEN 1 ELSE 0 END) as productos_sin_stock
     FROM productos
 ")->fetch(PDO::FETCH_ASSOC);
+
+// ------------------------------------------------------------------------------------
+// CÁLCULO INTERNO (MATEMÁTICA) - ESTO NO AFECTA EL DISEÑO
+// ------------------------------------------------------------------------------------
+$total_vacios_real = 0;
+foreach ($productos_data as $p) {
+    // 1. Sumamos lo que haya quedado en la columna vieja (basura o histórico)
+    $total_vacios_real += $p['stock_vacio'];
+
+    // 2. Si el producto se llama GAVERA o VACIO, sumamos su stock lleno al total de vacíos
+    if (stripos($p['nombre_producto'], 'GAVERA') !== false || 
+        stripos($p['nombre_producto'], 'VACIO') !== false || 
+        stripos($p['nombre_producto'], 'PLASTICO') !== false) {
+        $total_vacios_real += $p['stock_lleno'];
+    }
+}
+// ------------------------------------------------------------------------------------
 ?>
 
 <div class="d-flex justify-content-between align-items-center mb-4">
@@ -39,7 +58,6 @@ $estadisticas = $pdo->query("
     </div>
 </div>
 
-<!-- Estadísticas -->
 <div class="row mb-4">
     <div class="col-xl-2 col-md-4 mb-3">
         <div class="card border-start border-primary border-4">
@@ -78,9 +96,7 @@ $estadisticas = $pdo->query("
             <div class="card-body">
                 <div class="d-flex justify-content-between">
                     <div>
-                        <h5 class="text-muted">Stock Vacío</h5>
-                        <h3 class="mb-0"><?php echo number_format($estadisticas['total_stock_vacio']); ?></h3>
-                    </div>
+                        <h5 class="text-muted">Total Vacíos</h5> <h3 class="mb-0"><?php echo number_format($total_vacios_real); ?></h3> </div>
                     <div class="align-self-center">
                         <i class="bi bi-box-seam text-warning fs-3"></i>
                     </div>
@@ -125,7 +141,6 @@ $estadisticas = $pdo->query("
     </div>
 </div>
 
-<!-- Alertas de stock bajo -->
 <?php if($estadisticas['productos_bajo_stock'] > 0): ?>
 <div class="alert alert-warning alert-custom mb-4">
     <div class="d-flex align-items-center">
@@ -133,16 +148,13 @@ $estadisticas = $pdo->query("
         <div>
             <h5 class="alert-heading">¡Atención! Productos con stock bajo</h5>
             <p class="mb-1">
-                Hay <strong><?php echo $estadisticas['productos_bajo_stock']; ?> productos</strong> con stock menor a 10 unidades,
-                incluyendo <strong><?php echo $estadisticas['productos_sin_stock']; ?> productos</strong> sin stock disponible.
+                Hay <strong><?php echo $estadisticas['productos_bajo_stock']; ?> productos</strong> con stock menor a 10 unidades.
             </p>
-            <small>Considere realizar un pedido de reposición.</small>
         </div>
     </div>
 </div>
 <?php endif; ?>
 
-<!-- Tabla de inventario -->
 <div class="card shadow-sm">
     <div class="card-header bg-primary text-white">
         <h5 class="mb-0"><i class="bi bi-list-columns"></i> Lista de Productos</h5>
@@ -156,14 +168,13 @@ $estadisticas = $pdo->query("
                         <th class="text-center">Tipo</th>
                         <th class="text-end">Precio ($)</th>
                         <th class="text-center">Stock Lleno</th>
-                        <th class="text-center">Stock Vacío</th>
                         <th class="text-end">Valor Stock</th>
                         <th class="text-center">Estado</th>
                         <th class="text-center">Acciones</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <?php while($row = $stmt->fetch(PDO::FETCH_ASSOC)): 
+                    <?php foreach($productos_data as $row): 
                         $valor_stock = $row['stock_lleno'] * $row['precio_venta_usd'];
                         $estado_stock = '';
                         $color_estado = '';
@@ -171,15 +182,9 @@ $estadisticas = $pdo->query("
                         if ($row['stock_lleno'] == 0) {
                             $estado_stock = 'Sin Stock';
                             $color_estado = 'danger';
-                        } elseif ($row['stock_lleno'] < 5) {
-                            $estado_stock = 'Muy Bajo';
-                            $color_estado = 'danger';
                         } elseif ($row['stock_lleno'] < 10) {
                             $estado_stock = 'Bajo';
                             $color_estado = 'warning';
-                        } elseif ($row['stock_lleno'] < 20) {
-                            $estado_stock = 'Normal';
-                            $color_estado = 'info';
                         } else {
                             $estado_stock = 'Óptimo';
                             $color_estado = 'success';
@@ -199,19 +204,12 @@ $estadisticas = $pdo->query("
                         </td>
                         <td class="text-end fw-bold text-success">$<?php echo number_format($row['precio_venta_usd'], 2); ?></td>
                         <td class="text-center">
-                            <span class="fw-bold <?php echo $row['stock_lleno'] < 10 ? 'text-danger' : 'text-success'; ?>">
+                            <span class="fw-bold <?php echo $row['stock_lleno'] < 10 ? 'text-danger' : 'text-success'; ?> fs-5">
                                 <?php echo number_format($row['stock_lleno']); ?>
                             </span>
                             <small class="text-muted">cajas</small>
                         </td>
-                        <td class="text-center">
-                            <?php if($row['es_retornable']): ?>
-                                <span class="fw-bold text-warning"><?php echo number_format($row['stock_vacio']); ?></span>
-                                <small class="text-muted">vacíos</small>
-                            <?php else: ?>
-                                <span class="text-muted">-</span>
-                            <?php endif; ?>
-                        </td>
+                        
                         <td class="text-end fw-bold">$<?php echo number_format($valor_stock, 2); ?></td>
                         <td class="text-center">
                             <span class="badge bg-<?php echo $color_estado; ?>"><?php echo $estado_stock; ?></span>
@@ -236,14 +234,13 @@ $estadisticas = $pdo->query("
                             </div>
                         </td>
                     </tr>
-                    <?php endwhile; ?>
+                    <?php endforeach; ?>
                 </tbody>
             </table>
         </div>
     </div>
 </div>
 
-<!-- Modal Agregar Producto -->
 <div class="modal fade" id="modalProducto" tabindex="-1">
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
@@ -291,26 +288,19 @@ $estadisticas = $pdo->query("
             <h6>Inventario Inicial</h6>
             
             <div class="row">
-                <div class="col-md-6 mb-3">
+                <div class="col-md-4 mb-3">
                     <label class="form-label text-success">Stock Lleno (Inicial)</label>
                     <input type="number" name="stock_lleno" class="form-control" value="0" min="0">
                 </div>
-                <div class="col-md-6 mb-3">
-                    <label class="form-label text-warning">Stock Vacío (Inicial)</label>
-                    <input type="number" name="stock_vacio" class="form-control" value="0" min="0">
-                </div>
-            </div>
-            
-            <div class="row">
-                <div class="col-md-6 mb-3">
+                <input type="hidden" name="stock_vacio" value="0"> 
+                
+                <div class="col-md-4 mb-3">
                     <label class="form-label">Stock Mínimo</label>
                     <input type="number" name="stock_minimo" class="form-control" value="10" min="0">
-                    <small class="text-muted">Se generará alerta cuando el stock esté por debajo de este valor</small>
                 </div>
-                <div class="col-md-6 mb-3">
+                <div class="col-md-4 mb-3">
                     <label class="form-label">Stock Máximo</label>
                     <input type="number" name="stock_maximo" class="form-control" value="100" min="0">
-                    <small class="text-muted">Cantidad máxima recomendada en inventario</small>
                 </div>
             </div>
           </div>
@@ -323,7 +313,6 @@ $estadisticas = $pdo->query("
   </div>
 </div>
 
-<!-- Modal Ajustar Stock -->
 <div class="modal fade" id="modalAjuste" tabindex="-1">
   <div class="modal-dialog">
     <div class="modal-content">
@@ -337,14 +326,10 @@ $estadisticas = $pdo->query("
           <div class="modal-body">
             <div class="mb-3 text-center">
                 <h5 id="ajusteProductoNombre">Producto</h5>
-                <div class="row">
+                <div class="row justify-content-center">
                     <div class="col-6">
-                        <small>Stock Lleno Actual:</small><br>
-                        <span id="stockLlenoActual" class="fw-bold">0</span>
-                    </div>
-                    <div class="col-6">
-                        <small>Stock Vacío Actual:</small><br>
-                        <span id="stockVacioActual" class="fw-bold">0</span>
+                        <small>Existencia Actual:</small><br>
+                        <span id="stockLlenoActual" class="fw-bold fs-4">0</span>
                     </div>
                 </div>
             </div>
@@ -353,49 +338,22 @@ $estadisticas = $pdo->query("
             
             <div class="mb-3">
                 <label class="form-label">Tipo de Ajuste</label>
-                <select name="tipo_ajuste" class="form-select" onchange="mostrarCamposAjuste()">
+                <select name="tipo_ajuste" class="form-select">
                     <option value="ENTRADA">Entrada de Mercancía</option>
                     <option value="SALIDA">Salida por Ajuste</option>
-                    <option value="TRANSFERENCIA">Transferencia Lleno-Vacío</option>
-                    <option value="DANADO">Producto Dañado</option>
                     <option value="FISICO">Conteo Físico</option>
                 </select>
             </div>
             
-            <div id="camposEntrada" class="ajuste-campos">
-                <div class="mb-3">
-                    <label class="form-label">Cantidad a Agregar (Stock Lleno)</label>
-                    <input type="number" name="cantidad_lleno_entrada" class="form-control" min="0" value="0">
-                </div>
-                <div class="mb-3">
-                    <label class="form-label">Cantidad Vacíos Recibidos</label>
-                    <input type="number" name="cantidad_vacio_entrada" class="form-control" min="0" value="0">
-                </div>
-            </div>
-            
-            <div id="camposSalida" class="ajuste-campos d-none">
-                <div class="mb-3">
-                    <label class="form-label">Cantidad a Retirar (Stock Lleno)</label>
-                    <input type="number" name="cantidad_lleno_salida" class="form-control" min="0" value="0">
-                </div>
-                <div class="mb-3">
-                    <label class="form-label">Cantidad Vacíos Retirados</label>
-                    <input type="number" name="cantidad_vacio_salida" class="form-control" min="0" value="0">
-                </div>
-            </div>
-            
-            <div id="camposTransferencia" class="ajuste-campos d-none">
-                <div class="mb-3">
-                    <label class="form-label">Vaciar Stock Lleno</label>
-                    <input type="number" name="cantidad_lleno_a_vacio" class="form-control" min="0" value="0">
-                    <small class="text-muted">Convierte stock lleno en stock vacío</small>
-                </div>
+            <div class="mb-3">
+                <label class="form-label fw-bold">Cantidad a Ajustar</label>
+                <input type="number" name="cantidad" class="form-control" min="0" value="0">
             </div>
             
             <div class="mb-3">
                 <label class="form-label">Motivo del Ajuste</label>
                 <textarea name="motivo" class="form-control" rows="2" required 
-                          placeholder="Ej: Reposición de inventario, Ajuste por conteo físico..."></textarea>
+                          placeholder="Ej: Reposición de inventario..."></textarea>
             </div>
             
             <div class="mb-3">
@@ -413,59 +371,30 @@ $estadisticas = $pdo->query("
   </div>
 </div>
 
-<!-- Modal Editar Producto -->
 <div class="modal fade" id="modalEditarProducto" tabindex="-1">
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
-      <!-- Se carga dinámicamente -->
     </div>
   </div>
 </div>
 
 <script>
-// Función para generar reporte de inventario
 function generarReporteInventario() {
     window.open('reporte_inventario.php', '_blank');
 }
 
-// Función para ajustar stock
-function ajustarStock(id, nombre, stockLleno, stockVacio) {
+function ajustarStock(id, nombre, stockLleno) {
     document.getElementById('ajusteProductoId').value = id;
     document.getElementById('ajusteProductoNombre').innerText = nombre;
     document.getElementById('stockLlenoActual').innerText = stockLleno;
-    document.getElementById('stockVacioActual').innerText = stockVacio;
-    
-    // Resetear campos
-    document.querySelectorAll('.ajuste-campos').forEach(el => {
-        el.classList.add('d-none');
-    });
-    document.getElementById('camposEntrada').classList.remove('d-none');
-    
+    document.querySelector('input[name="cantidad"]').value = 0;
     $('#modalAjuste').modal('show');
 }
 
-// Función para mostrar campos según tipo de ajuste
 function mostrarCamposAjuste() {
-    const tipo = document.querySelector('select[name="tipo_ajuste"]').value;
-    
-    // Ocultar todos los campos
-    document.querySelectorAll('.ajuste-campos').forEach(el => {
-        el.classList.add('d-none');
-    });
-    
-    // Mostrar campos correspondientes
-    if (tipo === 'ENTRADA') {
-        document.getElementById('camposEntrada').classList.remove('d-none');
-    } else if (tipo === 'SALIDA') {
-        document.getElementById('camposSalida').classList.remove('d-none');
-    } else if (tipo === 'TRANSFERENCIA') {
-        document.getElementById('camposTransferencia').classList.remove('d-none');
-    } else {
-        document.getElementById('camposSalida').classList.remove('d-none');
-    }
+    // Simplificado
 }
 
-// Función para editar producto
 function editarProducto(id) {
     $.ajax({
         url: 'editar.php',
@@ -478,76 +407,117 @@ function editarProducto(id) {
     });
 }
 
-// Función para eliminar producto
 function eliminarProducto(id, nombre) {
-    if (confirm(`¿Está seguro de eliminar el producto "${nombre}"?\n\nEsta acción no se puede deshacer y eliminará todas las referencias del producto.`)) {
-        $.ajax({
-            url: 'eliminar.php',
-            type: 'POST',
-            data: { id: id },
-            success: function(response) {
-                const result = JSON.parse(response);
-                if (result.success) {
-                    alert(result.message);
-                    location.reload();
-                } else {
-                    alert('Error: ' + result.message);
+    // 1. Preguntar bonito con SweetAlert
+    Swal.fire({
+        title: '¿Estás seguro?',
+        text: "Vas a eliminar el producto: " + nombre,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#d33', // Rojo peligro
+        cancelButtonColor: '#3085d6', // Azul cancelar
+        confirmButtonText: 'Sí, eliminarlo',
+        cancelButtonText: 'Cancelar'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            // 2. Si dice que SÍ, llamamos al archivo PHP
+            $.ajax({
+                url: 'eliminar.php',
+                type: 'POST',
+                data: { id: id },
+                dataType: 'json',
+                success: function(response) {
+                    if (response.success) {
+                        // 3a. ÉXITO (Check Verde)
+                        Swal.fire(
+                            response.title,
+                            response.message,
+                            'success'
+                        ).then(() => {
+                            location.reload(); // Recarga la página para ver cambios
+                        });
+                    } else {
+                        // 3b. ERROR DE PROTECCIÓN (X Roja)
+                        Swal.fire(
+                            response.title,
+                            response.message,
+                            'error'
+                        );
+                    }
+                },
+                error: function() {
+                    Swal.fire('Error', 'Hubo un problema de conexión con el servidor', 'error');
                 }
-            }
-        });
-    }
+            });
+        }
+    })
 }
 
-// Validar formulario de producto
+function eliminarProducto(id, nombre) {
+    Swal.fire({
+        title: '¿Estás seguro?',
+        text: "Se eliminará el producto: " + nombre,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#d33',
+        cancelButtonColor: '#3085d6',
+        confirmButtonText: 'Sí, eliminar',
+        cancelButtonText: 'Cancelar'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            // INTENTO DE ELIMINAR
+            $.ajax({
+                url: 'eliminar.php',
+                type: 'POST',
+                data: { id: id },
+                dataType: 'json',
+                success: function(response) {
+                    if (response.success) {
+                        // CASO 1: SE BORRÓ (Porque era nuevo)
+                        Swal.fire('¡Eliminado!', response.message, 'success')
+                        .then(() => location.reload());
+                    } else {
+                        // CASO 2: NO SE PUDO BORRAR (Tiene historial) -> OFRECEMOS DESACTIVAR
+                        Swal.fire({
+                            title: 'No se puede eliminar',
+                            text: response.message + " ¿Quieres desactivarlo para que no estorbe?",
+                            icon: 'error',
+                            showCancelButton: true,
+                            confirmButtonText: '⚠️ Sí, Desactivar',
+                            confirmButtonColor: '#f39c12', // Color Naranja de advertencia
+                            cancelButtonText: 'No, dejar así'
+                        }).then((resultDesactivar) => {
+                            if (resultDesactivar.isConfirmed) {
+                                // LLAMAMOS A DESACTIVAR
+                                $.ajax({
+                                    url: 'desactivar.php',
+                                    type: 'POST',
+                                    data: { id: id },
+                                    dataType: 'json',
+                                    success: function(res) {
+                                        if(res.success) {
+                                            Swal.fire('Desactivado', res.message, 'success')
+                                            .then(() => location.reload());
+                                        }
+                                    }
+                                });
+                            }
+                        });
+                    }
+                },
+                error: function() {
+                    Swal.fire('Error', 'Fallo de conexión', 'error');
+                }
+            });
+        }
+    })
+}
+
 document.getElementById('formProducto').addEventListener('submit', function(e) {
     const precio = parseFloat(document.querySelector('input[name="precio"]').value);
     const stockLleno = parseInt(document.querySelector('input[name="stock_lleno"]').value);
-    
-    if (precio < 0) {
-        e.preventDefault();
-        alert('El precio no puede ser negativo.');
-        return;
-    }
-    
-    if (stockLleno < 0) {
-        e.preventDefault();
-        alert('El stock inicial no puede ser negativo.');
-        return;
-    }
-});
-
-// Validar formulario de ajuste
-document.getElementById('formAjuste').addEventListener('submit', function(e) {
-    const tipo = document.querySelector('select[name="tipo_ajuste"]').value;
-    const stockLlenoActual = parseInt(document.getElementById('stockLlenoActual').textContent);
-    const stockVacioActual = parseInt(document.getElementById('stockVacioActual').textContent);
-    
-    if (tipo === 'SALIDA') {
-        const cantidadLleno = parseInt(document.querySelector('input[name="cantidad_lleno_salida"]').value) || 0;
-        const cantidadVacio = parseInt(document.querySelector('input[name="cantidad_vacio_salida"]').value) || 0;
-        
-        if (cantidadLleno > stockLlenoActual) {
-            e.preventDefault();
-            alert(`No puede retirar ${cantidadLleno} unidades cuando solo hay ${stockLlenoActual} en stock.`);
-            return;
-        }
-        
-        if (cantidadVacio > stockVacioActual) {
-            e.preventDefault();
-            alert(`No puede retirar ${cantidadVacio} vacíos cuando solo hay ${stockVacioActual} en stock.`);
-            return;
-        }
-    }
-    
-    if (tipo === 'TRANSFERENCIA') {
-        const cantidadTransferir = parseInt(document.querySelector('input[name="cantidad_lleno_a_vacio"]').value) || 0;
-        
-        if (cantidadTransferir > stockLlenoActual) {
-            e.preventDefault();
-            alert(`No puede transferir ${cantidadTransferir} unidades cuando solo hay ${stockLlenoActual} en stock.`);
-            return;
-        }
-    }
+    if (precio < 0) { e.preventDefault(); alert('El precio no puede ser negativo.'); return; }
+    if (stockLleno < 0) { e.preventDefault(); alert('El stock inicial no puede ser negativo.'); return; }
 });
 </script>
 

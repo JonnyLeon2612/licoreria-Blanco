@@ -25,9 +25,9 @@ $stmt = $pdo->query($query);
         <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#modalCliente">
             <i class="bi bi-plus-circle"></i> Nuevo Cliente
         </button>
-        <button class="btn btn-outline-secondary" onclick="exportarClientes()">
-            <i class="bi bi-download"></i> Exportar
-        </button>
+<button class="btn btn-success" onclick="exportarClientes()">
+    <i class="bi bi-file-earmark-excel"></i> Exportar
+</button>
     </div>
 </div>
 
@@ -294,6 +294,11 @@ $('#searchClientes').on('keyup', aplicarFiltros);
 $(function () {
     $('[data-bs-toggle="tooltip"]').tooltip();
 });
+
+function exportarClientes() {
+    window.open('reporte_clientes.php', '_blank');
+} 
+
 </script>
 
 <?php include '../../includes/footer.php'; ?>

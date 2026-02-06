@@ -21,6 +21,15 @@ if ($cliente_filtro > 0) {
     $stmt = $pdo->prepare("SELECT * FROM clientes WHERE id_cliente = ?");
     $stmt->execute([$cliente_filtro]);
     $cliente_especifico = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    // Cálculo de deuda real para el filtro inicial
+    $deuda = $pdo->query("SELECT 
+        (SELECT COALESCE(SUM(total_monto_usd), 0) FROM ventas WHERE id_cliente = $cliente_filtro) - 
+        (SELECT COALESCE(SUM(monto_abonado_usd), 0) FROM abonos WHERE id_cliente = $cliente_filtro) as saldo_dinero_usd,
+        
+        (SELECT COALESCE(SUM(total_vacios_despachados), 0) FROM ventas WHERE id_cliente = $cliente_filtro) - 
+        (SELECT COALESCE(SUM(vacios_devueltos), 0) FROM abonos WHERE id_cliente = $cliente_filtro) as saldo_vacios
+    ")->fetch();
 }
 ?>
 
@@ -40,8 +49,7 @@ if ($cliente_filtro > 0) {
 </div>
 
 <?php if ($cliente_filtro > 0 && $cliente_especifico):
-    $deuda = $pdo->query("SELECT saldo_dinero_usd, saldo_vacios FROM cuentas_por_cobrar WHERE id_cliente = $cliente_filtro")->fetch();
-    if ($deuda['saldo_dinero_usd'] > 0 || $deuda['saldo_vacios'] > 0): ?>
+    if ($deuda['saldo_dinero_usd'] > 0.01 || $deuda['saldo_vacios'] > 0): ?>
         <div class="alert alert-warning alert-custom">
             <div class="d-flex align-items-center">
                 <i class="bi bi-exclamation-triangle fs-4 me-3"></i>
@@ -92,11 +100,11 @@ if ($cliente_filtro > 0) {
                             <div class="row small">
                                 <div class="col-6">
                                     <span class="text-muted">Deuda actual:</span><br>
-                                    <span id="deudaActual" class="fw-bold">$0.00</span>
+                                    <span id="deudaActual" class="fw-bold text-danger">$0.00</span>
                                 </div>
                                 <div class="col-6">
                                     <span class="text-muted">Vacíos pendientes:</span><br>
-                                    <span id="vaciosPendientes" class="fw-bold">0</span>
+                                    <span id="vaciosPendientes" class="fw-bold text-warning">0</span>
                                 </div>
                             </div>
                         </div>
@@ -303,6 +311,7 @@ if ($cliente_filtro > 0) {
         </div>
     </div>
 </div>
+
 <div class="modal fade" id="modalClienteRapido" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog">
         <div class="modal-content">
@@ -342,19 +351,18 @@ if ($cliente_filtro > 0) {
 </div>
 
 <script>
-    // Variables globales
     let carrito = [];
     let totalVenta = 0;
     let totalVacios = 0;
     let subtotal = 0;
     let totalProductos = 0;
 
-    // 1. ACTIVAR BUSCADORES AL CARGAR LA PÁGINA
     $(document).ready(function() {
         $('#clienteSelect').select2({
             theme: 'bootstrap-5',
             width: '100%',
-            placeholder: '-- Seleccione Cliente --'
+            placeholder: '-- Seleccione Cliente --',
+            language: { noResults: () => "No se encontró el cliente" }
         });
 
         $('#productoSelect').select2({
@@ -362,16 +370,19 @@ if ($cliente_filtro > 0) {
             width: '100%',
             placeholder: '-- Seleccione Producto --'
         });
+
+        // Abrir buscador al hacer clic
+        $(document).on('select2:open', () => {
+            document.querySelector('.select2-search__field').focus();
+        });
     });
 
-    // 2. ACTUALIZAR LÓGICA DEL SWITCH (Trigger Select2)
     document.getElementById('retiroPuerta').addEventListener('change', function() {
         const select = document.getElementById('clienteSelect');
         if (this.checked) {
             let opcion = Array.from(select.options).find(o => o.text.includes('VENTA EN PUERTA'));
 
             if (opcion) {
-                // USAMOS TRIGGER CHANGE PARA SELECT2
                 $(select).val(opcion.value).trigger('change'); 
                 document.getElementById('montoPagado').value = totalVenta.toFixed(2);
                 document.getElementById('vaciosRecibidos').value = totalVacios;
@@ -380,7 +391,11 @@ if ($cliente_filtro > 0) {
                 select.classList.add('bg-light');
                 document.getElementById('infoDeudaCliente').classList.add('d-none');
             } else {
-                alert("Error: No se encontró el cliente 'VENTA EN PUERTA' en la lista.");
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Error',
+                    text: 'No se encontró el cliente "VENTA EN PUERTA" en la lista.'
+                });
                 this.checked = false;
             }
         } else {
@@ -390,17 +405,20 @@ if ($cliente_filtro > 0) {
             select.style.pointerEvents = "auto";
             select.classList.remove('bg-light');
         }
-        calcularChange();
+        calcularCambio();
         calcularVaciosPendientes();
     });
 
-    // Función para agregar producto al carrito
     function agregarProducto() {
         const select = document.getElementById('productoSelect');
         const cantidad = parseInt(document.getElementById('cantidadInput').value);
 
         if (select.value === "" || cantidad < 1) {
-            alert("Seleccione un producto y cantidad válida");
+            Swal.fire({
+                icon: 'warning',
+                title: 'Atención',
+                text: 'Seleccione un producto y una cantidad válida.'
+            });
             return;
         }
 
@@ -408,7 +426,11 @@ if ($cliente_filtro > 0) {
         const stock = parseInt(option.getAttribute('data-stock'));
 
         if (cantidad > stock) {
-            alert(`Stock insuficiente. Solo hay ${stock} unidades disponibles.`);
+            Swal.fire({
+                icon: 'error',
+                title: 'Stock insuficiente',
+                text: `Solo hay ${stock} unidades disponibles.`
+            });
             return;
         }
 
@@ -439,15 +461,11 @@ if ($cliente_filtro > 0) {
         }
 
         actualizarCarrito();
-        
-        // 3. LIMPIAR BUSCADOR CON TRIGGER CHANGE
         $(select).val("").trigger('change'); 
-        
         document.getElementById('cantidadInput').value = 1;
         document.getElementById('infoProducto').classList.add('d-none');
     }
 
-    // El resto de tus funciones se mantienen igual...
     function agregarProductoRapido(id, nombre, precio, esRetornable) {
         $('#productoSelect').val(id).trigger('change');
         agregarProducto();
@@ -493,7 +511,11 @@ if ($cliente_filtro > 0) {
                     </td>
                     <td class="text-end fw-bold">$${item.subtotal.toFixed(2)}</td>
                     <td class="text-center">${item.vacios}</td>
-                    <td><button class="btn btn-sm btn-danger" onclick="eliminarItem(${index})"><i class="bi bi-trash"></i></button></td>
+                    <td>
+                        <button class="btn btn-sm btn-danger" onclick="eliminarItem(${index})">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </td>
                 </tr>`;
             });
         } else {
@@ -522,7 +544,7 @@ if ($cliente_filtro > 0) {
     function actualizarPrecioManual(index, nuevoPrecio) {
         const precio = parseFloat(nuevoPrecio);
         if (isNaN(precio) || precio < 0) {
-            alert("Ingrese un precio válido");
+            Swal.fire('Error', 'Ingrese un precio válido', 'error');
             return;
         }
         carrito[index].precio = precio;
@@ -543,10 +565,21 @@ if ($cliente_filtro > 0) {
     }
 
     function eliminarItem(index) {
-        if (confirm("¿Eliminar producto?")) {
-            carrito.splice(index, 1);
-            actualizarCarrito();
-        }
+        Swal.fire({
+            title: '¿Eliminar producto?',
+            text: "Se quitará de la lista de venta",
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#d33',
+            cancelButtonColor: '#3085d6',
+            confirmButtonText: 'Sí, eliminar',
+            cancelButtonText: 'Cancelar'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                carrito.splice(index, 1);
+                actualizarCarrito();
+            }
+        });
     }
 
     function cargarDeudaCliente(idCliente) {
@@ -582,7 +615,11 @@ if ($cliente_filtro > 0) {
     document.getElementById('formVenta').addEventListener('submit', function(e) {
         if (carrito.length === 0) {
             e.preventDefault();
-            alert("Agregue productos");
+            Swal.fire({
+                icon: 'warning',
+                title: 'Carrito vacío',
+                text: 'Debe agregar al menos un producto para procesar la venta.'
+            });
         }
     });
 
@@ -592,34 +629,28 @@ if ($cliente_filtro > 0) {
             cargarDeudaCliente(<?php echo $cliente_filtro; ?>);
         });
     <?php endif; ?>
-
-$(document).ready(function() {
-    // Buscador de Clientes
-    $('#clienteSelect').select2({
-        theme: 'bootstrap-5',
-        placeholder: 'Escriba nombre del cliente...',
-        width: '100%',
-        minimumInputLength: 0, // Filtra desde que escribes la primera letra
-        language: {
-            noResults: function() { return "No se encontró el cliente"; }
-        }
-    });
-
-    // Buscador de Productos (El que más vas a usar)
-    $('#productoSelect').select2({
-        theme: 'bootstrap-5',
-        placeholder: 'Escriba producto (ej: Solera, Pilsen...)',
-        width: '100%',
-        containerCssClass: ':all:', // Asegura que el diseño no se rompa
-        minimumInputLength: 0
-    });
-
-    // TRUCO PRO: Abre el buscador automáticamente al hacer clic
-    $(document).on('select2:open', () => {
-        document.querySelector('.select2-search__field').focus();
-    });
-});
-
 </script>
+
+<?php if(isset($_SESSION['swal_success'])): ?>
+<script>
+Swal.fire({
+  icon: 'success',
+  title: '¡Venta Exitosa!',
+  text: '<?php echo $_SESSION['swal_success']; ?>',
+  confirmButtonColor: '#28a745'
+});
+</script>
+<?php unset($_SESSION['swal_success']); endif; ?>
+
+<?php if(isset($_SESSION['swal_error'])): ?>
+<script>
+Swal.fire({
+  icon: 'error',
+  title: 'Oops...',
+  text: '<?php echo $_SESSION['swal_error']; ?>',
+  confirmButtonColor: '#dc3545'
+});
+</script>
+<?php unset($_SESSION['swal_error']); endif; ?>
 
 <?php include '../../includes/footer.php'; ?>
