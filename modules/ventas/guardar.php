@@ -11,7 +11,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $total_vacios_esperados = intval($_POST['total_vacios_esperados']);
     $vacios_recibidos = intval($_POST['vacios_recibidos']);
     
-    // Decodificar el JSON de productos que viene con los PRECIOS EDITADOS
+    // Decodificar el JSON de productos
     $productos = json_decode($_POST['detalle_productos'], true);
 
     if (empty($productos)) {
@@ -23,8 +23,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     try {
         $pdo->beginTransaction();
 
-        // 1. Validar stock antes de procesar
-        foreach ($productos as $item) {
+        // 1. Validar stock antes de procesar Y PREPARAR DATOS HISTÓRICOS
+        // Vamos a enriquecer el array $productos con el nombre real de la BD
+        foreach ($productos as &$item) {
             $id_producto = intval($item['id']);
             $cantidad = intval($item['cantidad']);
             
@@ -39,7 +40,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             if ($producto['stock_lleno'] < $cantidad) {
                 throw new Exception("Stock insuficiente para {$producto['nombre_producto']}. Disponible: {$producto['stock_lleno']}, Solicitado: {$cantidad}");
             }
+
+            // GUARDAMOS EL NOMBRE ORIGINAL AQUÍ PARA USARLO LUEGO
+            $item['nombre_congelado'] = $producto['nombre_producto'];
         }
+        unset($item); // Romper referencia
 
         // 2. LÓGICA DE DEUDAS (Dinero y Vacíos)
         $deuda_dinero = 0;
@@ -52,8 +57,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $estado = 'Pendiente';
         }
 
-        // NUEVO: Lógica exacta de vacíos basada en el saldo real
-        // Si se llevan más de lo que entregan, la diferencia aumenta la deuda de vacíos
+        // Lógica exacta de vacíos basada en el saldo real
         if ($vacios_recibidos < $total_vacios_esperados) {
             $deuda_vacios = $total_vacios_esperados - $vacios_recibidos;
             if ($estado == 'Pagado') {
@@ -93,8 +97,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         
         $id_venta = $pdo->lastInsertId();
 
-        // 5. Detalle de Venta y Ajuste de Inventario
-        $sqlDetalle = "INSERT INTO detalle_ventas (id_venta, id_producto, cantidad, precio_unitario) VALUES (?, ?, ?, ?)";
+        // 5. Detalle de Venta (CON NOMBRE HISTÓRICO) y Ajuste de Inventario
+        // NOTA: Aquí agregamos 'nombre_historico' a la inserción
+        $sqlDetalle = "INSERT INTO detalle_ventas (id_venta, id_producto, cantidad, precio_unitario, nombre_historico) VALUES (?, ?, ?, ?, ?)";
+        
         $sqlStockLleno = "UPDATE productos SET stock_lleno = stock_lleno - ? WHERE id_producto = ?";
         $sqlStockVacio = "UPDATE productos SET stock_vacio = stock_vacio + ? WHERE id_producto = ?";
         
@@ -103,12 +109,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $stmtVacio = $pdo->prepare($sqlStockVacio);
 
         foreach ($productos as $item) {
-            // USAMOS EL PRECIO QUE VIENE DEL CARRITO (EL EDITADO)
+            // Insertamos el detalle INCLUYENDO EL NOMBRE CONGELADO
             $stmtDetalle->execute([
                 $id_venta, 
                 intval($item['id']), 
                 intval($item['cantidad']), 
-                floatval($item['precio']) 
+                floatval($item['precio']),
+                $item['nombre_congelado'] // <--- ESTO ES LO NUEVO QUE BLINDA LA FACTURA
             ]);
             
             // Restar cajas llenas
@@ -116,7 +123,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             
             // Si entregó vacíos, los sumamos al stock de vacíos de la empresa
             if ($item['esRetornable'] && $vacios_recibidos > 0) {
-                // Cálculo proporcional simple para distribuir los vacíos recibidos
                 $proporcion = $item['cantidad'] / $total_vacios_esperados;
                 $vacios_para_este = floor($vacios_recibidos * $proporcion);
                 
@@ -126,7 +132,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             }
         }
 
-        // 6. ACTUALIZAR CUENTAS POR COBRAR (El motor de la cobranza)
+        // 6. ACTUALIZAR CUENTAS POR COBRAR
         $sqlDeuda = "UPDATE cuentas_por_cobrar 
                      SET saldo_dinero_usd = saldo_dinero_usd + :dinero, 
                          saldo_vacios = saldo_vacios + :vacios,
@@ -140,7 +146,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             ':cliente' => $id_cliente
         ]);
 
-        // 7. Registrar el Abono inicial (si hubo pago en el momento)
+        // 7. Registrar el Abono inicial
         if ($monto_pagado > 0 || $vacios_recibidos > 0) {
             $sqlAbono = "INSERT INTO abonos (id_cliente, id_venta, monto_abonado_usd, vacios_devueltos, metodo_pago, observaciones) 
                          VALUES (:cliente, :venta, :monto, :vacios, 'EFECTIVO', 'Pago inicial en venta')";
@@ -155,7 +161,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
         $pdo->commit();
         
-        // Redirigir al nuevo comprobante estilo ticket
+        // Redirigir al comprobante
         header("Location: comprobante.php?id=" . $id_venta);
         exit();
 

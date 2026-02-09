@@ -354,7 +354,7 @@ $ventas_pendientes = $ventas_pendientes->fetchAll();
                             <?php if($movimiento['tipo'] == 'VENTA'): ?>
                                 <span class="badge bg-<?php 
                                     echo $movimiento['estado_pago'] == 'Pagado' ? 'success' : 
-                                         ($movimiento['estado_pago'] == 'Pendiente' ? 'warning' : 'info'); 
+                                            ($movimiento['estado_pago'] == 'Pendiente' ? 'warning' : 'info'); 
                                 ?>">
                                     <?php echo $movimiento['estado_pago']; ?>
                                 </span>
@@ -369,6 +369,13 @@ $ventas_pendientes = $ventas_pendientes->fetchAll();
                 </tbody>
             </table>
         </div>
+    </div>
+</div>
+
+<div class="modal fade" id="modalEditarCliente" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            </div>
     </div>
 </div>
 
