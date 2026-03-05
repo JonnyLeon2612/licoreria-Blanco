@@ -98,3 +98,188 @@ body.dashboard-page::before {
     position: relative;
     z-index: 1;
 }
+
+/* ==================== RESPONSIVE MOBILE ==================== */
+
+/* Pantallas pequeñas (móviles) */
+@media (max-width: 767.98px) {
+    /* Layout general */
+    .row {
+        margin-left: -8px;
+        margin-right: -8px;
+    }
+    
+    .col, .col-1, .col-2, .col-3, .col-4, .col-5, .col-6,
+    .col-7, .col-8, .col-9, .col-10, .col-11, .col-12,
+    .col-md, .col-md-1, .col-md-2, .col-md-3, .col-md-4, .col-md-5, .col-md-6,
+    .col-md-7, .col-md-8, .col-md-9, .col-md-10, .col-md-11, .col-md-12,
+    .col-lg, .col-lg-1, .col-lg-2, .col-lg-3, .col-lg-4, .col-lg-5, .col-lg-6,
+    .col-lg-7, .col-lg-8, .col-lg-9, .col-lg-10, .col-lg-11, .col-lg-12 {
+        padding-left: 8px;
+        padding-right: 8px;
+        margin-bottom: 15px;
+    }
+    
+    /* Tablas responsivas */
+    .table-responsive {
+        border: 1px solid #dee2e6;
+        border-radius: 8px;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+    
+    .table-responsive table {
+        margin-bottom: 0;
+        min-width: 600px;
+    }
+    
+    /* Botones táctiles */
+    .btn, .form-control, .form-select, .form-check-input {
+        min-height: 44px !important;
+        font-size: 16px !important;
+    }
+    
+    .btn-sm {
+        min-height: 36px !important;
+        padding: 0.25rem 0.75rem !important;
+    }
+    
+    /* Cards */
+    .card {
+        margin-bottom: 15px;
+        border-radius: 10px;
+    }
+    
+    .card-body {
+        padding: 1rem;
+    }
+    
+    /* Headers */
+    h1, .h1 {
+        font-size: 1.5rem !important;
+    }
+    
+    h2, .h2 {
+        font-size: 1.3rem !important;
+    }
+    
+    h3, .h3 {
+        font-size: 1.2rem !important;
+    }
+    
+    /* Modales */
+    .modal-dialog {
+        margin: 10px;
+    }
+    
+    .modal-content {
+        border-radius: 10px;
+    }
+    
+    /* Formularios */
+    .form-label {
+        font-size: 0.9rem;
+        margin-bottom: 0.3rem;
+    }
+    
+    /* Espaciados reducidos */
+    .mb-4 {
+        margin-bottom: 1rem !important;
+    }
+    
+    .pt-4 {
+        padding-top: 1rem !important;
+    }
+    
+    /* Ocultar elementos menos importantes en móvil */
+    .d-mobile-hide {
+        display: none !important;
+    }
+    
+    /* Mostrar elementos solo en móvil */
+    .d-mobile-show {
+        display: block !important;
+    }
+}
+
+/* Pantallas extra pequeñas (teléfonos pequeños) */
+@media (max-width: 575.98px) {
+    .col-xl-3.col-md-6.mb-4 {
+        flex: 0 0 100% !important;
+        max-width: 100% !important;
+    }
+    
+    /* Dashboard - una columna */
+    .col-lg-8, .col-lg-4, .col-lg-5, .col-lg-7, .col-lg-6 {
+        flex: 0 0 100% !important;
+        max-width: 100% !important;
+    }
+    
+    /* Textos más pequeños */
+    .fs-4 {
+        font-size: 1.1rem !important;
+    }
+    
+    .fs-5 {
+        font-size: 1rem !important;
+    }
+    
+    /* Grid de estadísticas en inventario */
+    .col-xl-2, .col-xl-3 {
+        flex: 0 0 50% !important;
+        max-width: 50% !important;
+    }
+    
+    /* KPI cards cuadradas */
+    .kpi-card {
+        padding: 1rem !important;
+        min-height: 140px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+    }
+    
+    .kpi-card h2 {
+        font-size: 1.8rem !important;
+        margin: 0.3rem 0 !important;
+    }
+    
+    .kpi-card .kpi-icon {
+        font-size: 1.5rem !important;
+        margin-bottom: 0.5rem !important;
+    }
+}
+
+/* Pantallas muy pequeñas (iPhone SE, etc) */
+@media (max-width: 375px) {
+    .col-xl-2, .col-xl-3 {
+        flex: 0 0 100% !important;
+        max-width: 100% !important;
+    }
+    
+    .navbar-brand {
+        font-size: 0.9rem !important;
+    }
+    
+    .btn-group .btn {
+        padding: 0.25rem 0.5rem !important;
+        font-size: 0.8rem !important;
+    }
+}
+
+/* Optimización para tablets */
+@media (min-width: 768px) and (max-width: 991.98px) {
+    .col-lg-8, .col-lg-4 {
+        flex: 0 0 100% !important;
+        max-width: 100% !important;
+    }
+    
+    .sidebar {
+        display: none !important;
+    }
+    
+    main {
+        margin-left: 0 !important;
+        width: 100% !important;
+    }
+}

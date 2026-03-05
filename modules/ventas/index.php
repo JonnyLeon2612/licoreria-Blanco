@@ -33,17 +33,59 @@ if ($cliente_filtro > 0) {
 }
 ?>
 
+<style>
+    /* Solo afecta a pantallas menores a 768px (Teléfonos) */
+    @media (max-width: 768px) {
+        /* Inputs y Selects más altos para dedos grandes */
+        .form-control, .form-select, .select2-selection {
+            min-height: 50px !important;
+            font-size: 16px !important; /* Evita zoom en iPhone */
+        }
+        
+        /* Botones grandes */
+        .btn {
+            min-height: 50px;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Barra Flotante de Cobro (Fija abajo) */
+        .mobile-checkout-bar {
+            position: fixed;
+            bottom: 0; 
+            left: 0;
+            width: 100%;
+            background: #212529; /* Fondo oscuro */
+            color: white;
+            padding: 15px;
+            z-index: 1050;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.2);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: max(15px, env(safe-area-inset-bottom)); /* Borde iPhone */
+        }
+
+        /* Espacio al final para que la barra no tape el contenido */
+        body {
+            padding-bottom: 80px;
+        }
+    }
+</style>
+
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
         <h1 class="h3 mb-0"><i class="bi bi-cart-plus text-success"></i> Registro de Ventas</h1>
-        <p class="text-muted">Complete el formulario para procesar una nueva venta</p>
+        <p class="text-muted d-none d-md-block">Complete el formulario para procesar una nueva venta</p>
     </div>
     <div>
         <a href="historial.php" class="btn btn-outline-primary">
-            <i class="bi bi-clock-history"></i> Historial
+            <i class="bi bi-clock-history"></i> <span class="d-none d-sm-inline">Historial</span>
         </a>
         <a href="../dashboard/index.php" class="btn btn-outline-secondary">
-            <i class="bi bi-arrow-left"></i> Dashboard
+            <i class="bi bi-arrow-left"></i> <span class="d-none d-sm-inline">Dashboard</span>
         </a>
     </div>
 </div>
@@ -68,7 +110,7 @@ if ($cliente_filtro > 0) {
 <?php endif; ?>
 
 <div class="row">
-    <div class="col-lg-5">
+    <div class="col-12 col-lg-5 order-1 mb-3">
         <div class="card shadow-sm mb-4">
             <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
                 <h5 class="mb-0"><i class="bi bi-cart-plus"></i> Nueva Venta</h5>
@@ -116,7 +158,7 @@ if ($cliente_filtro > 0) {
                         </h6>
 
                         <div class="row g-2 mb-3">
-                            <div class="col-md-6">
+                            <div class="col-12 col-md-8">
                                 <label class="form-label">Producto</label>
                                 <select id="productoSelect" class="form-select">
                                     <option value="">-- Seleccione Producto --</option>
@@ -132,12 +174,20 @@ if ($cliente_filtro > 0) {
                                     <?php endforeach; ?>
                                 </select>
                             </div>
-                            <div class="col-md-4">
-                                <label class="form-label">Cantidad (Cajas)</label>
-                                <input type="number" id="cantidadInput" class="form-control" min="1" value="1" max="100">
+                            
+                            <div class="col-8 col-md-3">
+                                <label class="form-label">Cantidad</label>
+                                <input type="number" id="cantidadInput" class="form-control text-center fw-bold" min="1" value="1" max="100">
+                                
+                                <div class="d-flex d-md-none gap-1 mt-2">
+                                    <button type="button" class="btn btn-sm btn-outline-secondary flex-fill" onclick="setCant(1)">+1</button>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary flex-fill" onclick="setCant(6)">+6</button>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary flex-fill" onclick="setCant(12)">+12</button>
+                                </div>
                             </div>
-                            <div class="col-md-2 d-flex align-items-end">
-                                <button type="button" class="btn btn-success w-100" onclick="agregarProducto()">
+                            
+                            <div class="col-4 col-md-1 d-flex align-items-end">
+                                <button type="button" class="btn btn-success w-100" onclick="agregarProducto()" style="height: 100%;">
                                     <i class="bi bi-plus-lg"></i>
                                 </button>
                             </div>
@@ -227,7 +277,8 @@ if ($cliente_filtro > 0) {
             </div>
         </div>
     </div>
-    <div class="col-lg-7">
+    
+    <div class="col-12 col-lg-7 order-2 order-lg-2">
         <div class="card shadow-sm">
             <div class="card-header bg-secondary text-white">
                 <h5 class="mb-0"><i class="bi bi-cart-check"></i> Detalle del Pedido</h5>
@@ -293,7 +344,7 @@ if ($cliente_filtro > 0) {
                     ")->fetchAll();
 
                     foreach ($productos_rapidos as $p): ?>
-                        <div class="col-md-4">
+                        <div class="col-6 col-md-4">
                             <button type="button" class="btn btn-outline-primary w-100 text-start"
                                 onclick="agregarProductoRapido(<?php echo $p['id_producto']; ?>, '<?php echo htmlspecialchars($p['nombre_producto']); ?>', <?php echo $p['precio_venta_usd']; ?>, <?php echo $p['es_retornable']; ?>)">
                                 <div class="d-flex justify-content-between align-items-center">
@@ -310,6 +361,16 @@ if ($cliente_filtro > 0) {
             </div>
         </div>
     </div>
+</div>
+
+<div id="floatingCheckout" class="mobile-checkout-bar d-md-none" style="display: none !important;">
+    <div>
+        <small class="d-block text-white-50">Total a Pagar</small>
+        <span class="fs-2 fw-bold" id="totalMontoFlotante">$0.00</span>
+    </div>
+    <button type="button" class="btn btn-success rounded-pill px-4 fw-bold" onclick="$('#formVenta').submit()">
+        COBRAR <i class="bi bi-arrow-right"></i>
+    </button>
 </div>
 
 <div class="modal fade" id="modalClienteRapido" tabindex="-1" aria-hidden="true">
@@ -350,6 +411,33 @@ if ($cliente_filtro > 0) {
     </div>
 </div>
 
+<style>
+/* Responsive para el formulario de ventas */
+@media (max-width: 768px) {
+    #tablaProductos input[type="number"] {
+        min-height: 36px;
+        width: 60px;
+    }
+    
+    .select2-container--bootstrap-5 .select2-selection {
+        min-height: 44px;
+        font-size: 16px;
+    }
+    
+    .select2-container--bootstrap-5 .select2-selection--single .select2-selection__rendered {
+        line-height: 42px;
+    }
+    
+    #emptyMessage {
+        padding: 2rem 1rem !important;
+    }
+    
+    #emptyMessage i {
+        font-size: 2rem !important;
+    }
+}
+</style>
+
 <script>
     let carrito = [];
     let totalVenta = 0;
@@ -376,6 +464,11 @@ if ($cliente_filtro > 0) {
             document.querySelector('.select2-search__field').focus();
         });
     });
+
+    // Función para botones rápidos de cantidad (+1, +6, etc.)
+    function setCant(n) {
+        document.getElementById('cantidadInput').value = n;
+    }
 
     document.getElementById('retiroPuerta').addEventListener('change', function() {
         const select = document.getElementById('clienteSelect');
@@ -475,6 +568,7 @@ if ($cliente_filtro > 0) {
         const tbody = document.getElementById('tablaProductos');
         const emptyMsg = document.getElementById('emptyMessage');
         const resumen = document.getElementById('resumenCarrito');
+        const floatingBar = document.getElementById('floatingCheckout');
 
         tbody.innerHTML = "";
         totalVenta = 0;
@@ -485,6 +579,8 @@ if ($cliente_filtro > 0) {
         if (carrito.length > 0) {
             emptyMsg.style.display = 'none';
             resumen.classList.remove('d-none');
+            // Mostrar barra flotante
+            floatingBar.style.setProperty('display', 'flex', 'important');
 
             carrito.forEach((item, index) => {
                 totalVenta += item.subtotal;
@@ -521,9 +617,13 @@ if ($cliente_filtro > 0) {
         } else {
             emptyMsg.style.display = 'block';
             resumen.classList.add('d-none');
+            // Ocultar barra flotante
+            floatingBar.style.setProperty('display', 'none', 'important');
         }
 
+        // Actualizar textos
         document.getElementById('totalMontoDisplay').textContent = "$" + totalVenta.toFixed(2);
+        document.getElementById('totalMontoFlotante').textContent = "$" + totalVenta.toFixed(2); // Barra flotante
         document.getElementById('totalVaciosDisplay').textContent = totalVacios;
         document.getElementById('subtotalDisplay').textContent = "$" + subtotal.toFixed(2);
         document.getElementById('totalProductosDisplay').textContent = totalProductos;
@@ -613,12 +713,26 @@ if ($cliente_filtro > 0) {
     }
 
     document.getElementById('formVenta').addEventListener('submit', function(e) {
+        // 1. Validar Carrito Vacío
         if (carrito.length === 0) {
             e.preventDefault();
             Swal.fire({
                 icon: 'warning',
                 title: 'Carrito vacío',
                 text: 'Debe agregar al menos un producto para procesar la venta.'
+            });
+            return;
+        }
+
+        // 2. Validar Cliente (FIX CRÍTICO AQUÍ)
+        const clienteSelect = document.getElementById('clienteSelect');
+        if (clienteSelect.value === "" || clienteSelect.value === null) {
+            e.preventDefault(); // Detener el envío
+            Swal.fire({
+                icon: 'warning',
+                title: 'Falta el Cliente',
+                text: 'Por favor seleccione un cliente para procesar la venta.',
+                confirmButtonColor: '#d33'
             });
         }
     });

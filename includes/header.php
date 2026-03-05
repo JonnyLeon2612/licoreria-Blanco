@@ -9,7 +9,7 @@ if (!isset($pdo)) {
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
     <title><?php echo SITE_NAME; ?> - <?php echo $page_title ?? 'Sistema de Gestión'; ?></title>
 
     <!-- Bootstrap 5.3 -->
@@ -37,7 +37,7 @@ if (!isset($pdo)) {
             --warning-color: #f39c12;
             --danger-color: #e74c3c;
         }
-
+        
         /* --- Efecto de Marca de Agua Global --- */
         body::before {
             content: "";
@@ -154,6 +154,10 @@ if (!isset($pdo)) {
             padding: 1.5rem;
             border-radius: 12px;
             color: white;
+            min-height: 180px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
         }
 
         .kpi-card h2 {
@@ -262,9 +266,292 @@ if (!isset($pdo)) {
             color: #004085;
         }
 
+        /* =========== RESPONSIVE MOBILE FIRST =========== */
         @media (max-width: 768px) {
+            body {
+                padding-top: 60px !important;
+                overflow-x: hidden;
+            }
+            
+            .navbar-brand {
+                font-size: 1.1rem !important;
+            }
+            
+            .navbar-brand img {
+                height: 35px !important;
+                margin-right: 5px !important;
+            }
+            
+            .navbar-nav .nav-link {
+                padding: 0.5rem 1rem !important;
+                font-size: 0.9rem;
+            }
+            
             .sidebar {
                 display: none;
+            }
+            
+            main {
+                margin-left: 0 !important;
+                width: 100% !important;
+                padding: 10px !important;
+            }
+            
+            .container-fluid {
+                padding-left: 10px !important;
+                padding-right: 10px !important;
+            }
+            
+            .kpi-card {
+                padding: 1rem !important;
+                min-height: 140px;
+            }
+            
+            .kpi-card h2 {
+                font-size: 1.8rem !important;
+                margin: 0.3rem 0 !important;
+            }
+            
+            .kpi-card .kpi-icon {
+                font-size: 1.5rem !important;
+                margin-bottom: 0.5rem !important;
+            }
+            
+            /* Tablas responsivas */
+            .table-responsive {
+                border: 1px solid #dee2e6;
+                border-radius: 8px;
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+            
+            .table-responsive table {
+                margin-bottom: 0;
+                min-width: 600px;
+            }
+            
+            /* Botones táctiles */
+            .btn, .form-control, .form-select, .form-check-input {
+                min-height: 44px !important;
+                font-size: 16px !important;
+            }
+            
+            .btn-sm {
+                min-height: 36px !important;
+                padding: 0.25rem 0.75rem !important;
+            }
+            
+            .card {
+                margin-bottom: 15px;
+            }
+            
+            .card-body {
+                padding: 1rem;
+            }
+            
+            h1, .h1 {
+                font-size: 1.5rem !important;
+            }
+            
+            h2, .h2 {
+                font-size: 1.3rem !important;
+            }
+            
+            h3, .h3 {
+                font-size: 1.2rem !important;
+            }
+            
+            .modal-dialog {
+                margin: 10px;
+            }
+            
+            .modal-content {
+                border-radius: 10px;
+            }
+            
+            .form-label {
+                font-size: 0.9rem;
+                margin-bottom: 0.3rem;
+            }
+            
+            .mb-4 {
+                margin-bottom: 1rem !important;
+            }
+            
+            .pt-4 {
+                padding-top: 1rem !important;
+            }
+            
+            /* Fix para Select2 en móvil */
+            .select2-container {
+                width: 100% !important;
+            }
+            
+            /* Fix para DataTables en móvil */
+            .dataTables_wrapper .dataTables_filter input {
+                min-height: 44px !important;
+                font-size: 16px !important;
+                width: 100% !important;
+                margin-bottom: 10px;
+            }
+        }
+
+        @media (max-width: 576px) {
+            body {
+                padding-top: 56px !important;
+            }
+            
+            .navbar-brand span {
+                display: none;
+            }
+            
+            .navbar-brand img {
+                margin-right: 0 !important;
+            }
+            
+            .col-xl-3.col-md-6.mb-4 {
+                flex: 0 0 100% !important;
+                max-width: 100% !important;
+            }
+            
+            .fs-4 {
+                font-size: 1.1rem !important;
+            }
+            
+            .fs-5 {
+                font-size: 1rem !important;
+            }
+            
+            .col-xl-2, .col-xl-3 {
+                flex: 0 0 100% !important;
+                max-width: 100% !important;
+            }
+        }
+
+        @media (max-width: 375px) {
+            .navbar-brand {
+                font-size: 0.9rem !important;
+            }
+            
+            .btn-group .btn {
+                padding: 0.25rem 0.5rem !important;
+                font-size: 0.8rem !important;
+            }
+        }
+
+        /* Vista tipo cards para móvil */
+        .mobile-card-view {
+            display: none;
+        }
+
+        @media (max-width: 768px) {
+            .mobile-card-view {
+                display: block;
+            }
+            
+            .mobile-card-view .table-responsive {
+                display: none;
+            }
+            
+            .mobile-card {
+                border: 1px solid #dee2e6;
+                border-radius: 8px;
+                padding: 15px;
+                margin-bottom: 10px;
+                background: white;
+            }
+            
+            .mobile-card .card-row {
+                display: flex;
+                justify-content: space-between;
+                margin-bottom: 8px;
+            }
+            
+            .mobile-card .card-label {
+                font-weight: 600;
+                color: #6c757d;
+            }
+            
+            .mobile-card .card-value {
+                text-align: right;
+            }
+            
+            .mobile-card .card-actions {
+                margin-top: 10px;
+                display: flex;
+                gap: 5px;
+            }
+        }
+
+        /* Botón flotante para móvil */
+        .mobile-fab {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 1050;
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+            display: none;
+        }
+
+        @media (max-width: 768px) {
+            .mobile-fab {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+        }
+
+        /* BARRA DE NAVEGACIÓN INFERIOR (SOLO MÓVIL) */
+        .bottom-nav {
+            display: none;
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            background: #fff;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+            z-index: 1000;
+            height: 65px;
+            justify-content: space-around;
+            align-items: center;
+            padding-bottom: env(safe-area-inset-bottom); /* Para el borde del iPhone */
+        }
+
+        .bottom-nav-item {
+            text-decoration: none;
+            color: #6c757d;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            font-size: 10px;
+            flex-grow: 1;
+        }
+
+        .bottom-nav-item i {
+            font-size: 24px;
+            margin-bottom: 2px;
+        }
+
+        .bottom-nav-item.active {
+            color: #0d6efd; /* Color primario */
+            font-weight: bold;
+        }
+
+        /* Mostrar solo en móvil */
+        @media (max-width: 768px) {
+            .bottom-nav { 
+                display: flex; 
+            }
+            
+            body { 
+                padding-bottom: 80px !important; /* Espacio para que no tape contenido */
+            }
+            
+            .navbar { 
+                display: none !important; 
             }
         }
     </style>
@@ -276,7 +563,7 @@ if (!isset($pdo)) {
         <div class="container-fluid">
             <a class="navbar-brand" href="../dashboard/index.php">
                 <img src="../../assets/img/logo.png" alt="Logo" style="height: 50px; margin-right: 0px; vertical-align: middle;">
-                SIGIB Licoreria Blanco
+                <span class="d-none d-sm-inline">SIGIB Licoreria Blanco</span>
             </a>
 
             <!-- Botón para mobile -->
@@ -289,27 +576,27 @@ if (!isset($pdo)) {
                 <ul class="navbar-nav ms-auto">
                     <li class="nav-item">
                         <a class="nav-link" href="../dashboard/index.php">
-                            <i class="bi bi-speedometer2"></i> Dashboard
+                            <i class="bi bi-speedometer2"></i> <span class="d-none d-md-inline">Dashboard</span>
                         </a>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link" href="../clientes/index.php">
-                            <i class="bi bi-people"></i> Clientes
+                            <i class="bi bi-people"></i> <span class="d-none d-md-inline">Clientes</span>
                         </a>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link" href="../inventario/index.php">
-                            <i class="bi bi-boxes"></i> Inventario
+                            <i class="bi bi-boxes"></i> <span class="d-none d-md-inline">Inventario</span>
                         </a>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link" href="../ventas/index.php">
-                            <i class="bi bi-cart-plus"></i> Ventas
+                            <i class="bi bi-cart-plus"></i> <span class="d-none d-md-inline">Ventas</span>
                         </a>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link" href="../cobranza/index.php">
-                            <i class="bi bi-cash-coin"></i> Cobranza
+                            <i class="bi bi-cash-coin"></i> <span class="d-none d-md-inline">Cobranza</span>
                         </a>
                     </li>
                 </ul>
@@ -360,7 +647,7 @@ if (!isset($pdo)) {
     </div>
 
     <!-- Contenido Principal -->
-    <main class="col-lg-10 ms-auto px-md-4">
+    <main class="col-lg-10 ms-lg-auto px-md-4">
         <div class="container-fluid pt-4">
             <!-- Mostrar mensajes de sesión -->
             <?php if (isset($_SESSION['success'])): ?>
@@ -386,3 +673,27 @@ if (!isset($pdo)) {
                 </div>
                 <?php unset($_SESSION['warning']); ?>
             <?php endif; ?>
+
+<!-- Bottom Navigation (Solo para móviles) -->
+<div class="bottom-nav">
+    <a href="../dashboard/index.php" class="bottom-nav-item <?php echo strpos($_SERVER['REQUEST_URI'], 'dashboard') ? 'active' : ''; ?>">
+        <i class="bi bi-speedometer2"></i>
+        <span>Inicio</span>
+    </a>
+    <a href="../ventas/index.php" class="bottom-nav-item <?php echo strpos($_SERVER['REQUEST_URI'], 'ventas') ? 'active' : ''; ?>">
+        <i class="bi bi-cart-plus"></i>
+        <span>Vender</span>
+    </a>
+    <a href="../clientes/index.php" class="bottom-nav-item <?php echo strpos($_SERVER['REQUEST_URI'], 'clientes') ? 'active' : ''; ?>">
+        <i class="bi bi-people"></i>
+        <span>Clientes</span>
+    </a>
+    <a href="../cobranza/index.php" class="bottom-nav-item <?php echo strpos($_SERVER['REQUEST_URI'], 'cobranza') ? 'active' : ''; ?>">
+        <i class="bi bi-cash-stack"></i>
+        <span>Cobrar</span>
+    </a>
+<a href="../inventario/index.php" class="bottom-nav-item <?php echo strpos($_SERVER['REQUEST_URI'], 'inventario') ? 'active' : ''; ?>">
+    <i class="bi bi-box-seam"></i>
+    <span>Inventario</span>
+</a>
+</div>

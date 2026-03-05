@@ -112,7 +112,7 @@ if ($es_movil) {
 
         /* Ajustes de impresión (Para que salga bien en el papel) */
         @media print {
-            body {
+             body {
                 background-color: #fff;
                 margin: 0;
                 padding: 0;
