@@ -67,8 +67,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 ->execute([$nuevo_estado, $v['id_venta']]);
         }
 
-        // =================================================================================
-
         // 3. ACTUALIZAR TABLA DE SALDOS (Por mantenimiento)
         $pdo->prepare("UPDATE cuentas_por_cobrar 
                        SET saldo_dinero_usd = GREATEST(0, saldo_dinero_usd - :monto), 
@@ -80,6 +78,30 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 ':vacios' => $vacios, 
                 ':id' => $id_cliente
             ]);
+
+        // =====================================================================
+        // 4. EL TRUCO MAGICO: RECUPERAR LOS VACÍOS AL PATIO FÍSICO
+        // =====================================================================
+        if ($vacios > 0) {
+            // Buscamos si existe el producto comodín "GAVERA" o "VACIO"
+            $stmtGavera = $pdo->query("SELECT id_producto FROM productos WHERE nombre_producto LIKE '%GAVERA%' OR nombre_producto LIKE '%VACIO%' LIMIT 1");
+            $id_gavera = $stmtGavera->fetchColumn();
+
+            if ($id_gavera) {
+                // Si existe, le sumamos los vacíos al stock_lleno de la Gavera
+                $pdo->prepare("UPDATE productos SET stock_lleno = stock_lleno + ? WHERE id_producto = ?")
+                    ->execute([$vacios, $id_gavera]);
+                    
+                // Registramos en el historial para auditoría
+                $pdo->prepare("INSERT INTO movimientos_inventario (id_producto, tipo_movimiento, cantidad, usuario, referencia) VALUES (?, 'ENTRADA', ?, 'Sistema', ?)")
+                    ->execute([$id_gavera, $vacios, "Devolución de vacíos en Cobranza - Cliente ID: $id_cliente"]);
+            } else {
+                // Si no han creado el comodín, lo tiramos al stock_vacio del primer producto retornable activo
+                $pdo->prepare("UPDATE productos SET stock_vacio = stock_vacio + ? WHERE es_retornable = 1 AND estado = 1 LIMIT 1")
+                    ->execute([$vacios]);
+            }
+        }
+        // =====================================================================
 
         $pdo->commit();
 

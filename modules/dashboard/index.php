@@ -10,8 +10,7 @@ include '../../includes/header.php';
 $kpis = [];
 $kpis['deuda_total'] = $pdo->query("SELECT SUM(saldo_dinero_usd) FROM cuentas_por_cobrar")->fetchColumn() ?? 0;
 $kpis['vacios_pendientes'] = $pdo->query("SELECT SUM(saldo_vacios) FROM cuentas_por_cobrar")->fetchColumn() ?? 0;
-$kpis['stock_bajo'] = $pdo->query("SELECT COUNT(*) FROM productos WHERE stock_lleno < 10")->fetchColumn();
-$kpis['ventas_hoy'] = $pdo->query("SELECT COUNT(*) FROM ventas WHERE DATE(fecha_venta) = CURDATE()")->fetchColumn();
+$kpis['stock_bajo'] = $pdo->query("SELECT COUNT(*) FROM productos WHERE stock_lleno < 10 AND estado = 1")->fetchColumn();$kpis['ventas_hoy'] = $pdo->query("SELECT COUNT(*) FROM ventas WHERE DATE(fecha_venta) = CURDATE()")->fetchColumn();
 $kpis['monto_hoy'] = $pdo->query("SELECT COALESCE(SUM(total_monto_usd), 0) FROM ventas WHERE DATE(fecha_venta) = CURDATE()")->fetchColumn();
 $kpis['clientes_deudores'] = $pdo->query("SELECT COUNT(DISTINCT id_cliente) FROM cuentas_por_cobrar WHERE saldo_dinero_usd > 0")->fetchColumn();
 
@@ -33,7 +32,7 @@ $top_productos = $pdo->query("
     JOIN productos p ON dv.id_producto = p.id_producto
     JOIN ventas v ON dv.id_venta = v.id_venta
     WHERE v.fecha_venta >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
-    AND p.nombre_producto NOT LIKE '%(DESCONTINUADO)%' 
+    AND p.estado = 1
     GROUP BY p.id_producto
     ORDER BY total_vendido DESC
     LIMIT 5
@@ -41,8 +40,7 @@ $top_productos = $pdo->query("
 
 // Otros datos
 $clientes_morosos = $pdo->query("SELECT c.id_cliente, c.nombre_cliente, cc.saldo_dinero_usd, cc.saldo_vacios FROM clientes c JOIN cuentas_por_cobrar cc ON c.id_cliente = cc.id_cliente WHERE cc.saldo_dinero_usd > 0 ORDER BY cc.saldo_dinero_usd DESC LIMIT 5")->fetchAll();
-$alertas_stock = $pdo->query("SELECT nombre_producto, stock_lleno, precio_venta_usd FROM productos WHERE stock_lleno < 10 ORDER BY stock_lleno ASC LIMIT 5")->fetchAll();
-$ultimas_ventas = $pdo->query("SELECT v.id_venta, c.nombre_cliente, v.total_monto_usd, v.fecha_venta, v.estado_pago FROM ventas v JOIN clientes c ON v.id_cliente = c.id_cliente ORDER BY v.fecha_venta DESC LIMIT 10")->fetchAll();
+$alertas_stock = $pdo->query("SELECT nombre_producto, stock_lleno, precio_venta_usd FROM productos WHERE stock_lleno < 10 AND estado = 1 ORDER BY stock_lleno ASC LIMIT 5")->fetchAll();$ultimas_ventas = $pdo->query("SELECT v.id_venta, c.nombre_cliente, v.total_monto_usd, v.fecha_venta, v.estado_pago FROM ventas v JOIN clientes c ON v.id_cliente = c.id_cliente ORDER BY v.fecha_venta DESC LIMIT 10")->fetchAll();
 ?>
 
 <style>
@@ -300,14 +298,24 @@ $ultimas_ventas = $pdo->query("SELECT v.id_venta, c.nombre_cliente, v.total_mont
                         <table class="table table-hover mb-0 align-middle">
                             <thead class="table-light"><tr><th>Producto</th><th class="text-center">Stock</th><th class="text-end">Acción</th></tr></thead>
                             <tbody>
-                                <?php foreach($alertas_stock as $p): ?>
-                                <tr>
-                                    <td><?php echo str_replace('(DESCONTINUADO)', '<small class="text-danger">(Desc.)</small>', $p['nombre_producto']); ?></td>
-                                    <td class="text-center"><span class="badge bg-danger"><?php echo $p['stock_lleno']; ?></span></td>
-                                    <td class="text-end"><a href="../inventario/index.php" class="btn btn-sm btn-outline-dark"><i class="bi bi-arrow-right"></i></a></td>
-                                </tr>
-                                <?php endforeach; ?>
-                            </tbody>
+    <?php if(empty($alertas_stock)): ?>
+        <tr>
+            <td colspan="3" class="text-center text-success py-4">
+                <i class="bi bi-check-circle-fill fs-2 d-block mb-2"></i>
+                <span class="fw-bold">¡Inventario Sano!</span><br>
+                <small class="text-muted">No hay productos con stock bajo.</small>
+            </td>
+        </tr>
+    <?php else: ?>
+        <?php foreach($alertas_stock as $p): ?>
+        <tr>
+            <td><?php echo $p['nombre_producto']; ?></td>
+            <td class="text-center"><span class="badge bg-danger"><?php echo $p['stock_lleno']; ?></span></td>
+            <td class="text-end"><a href="../inventario/index.php" class="btn btn-sm btn-outline-dark"><i class="bi bi-arrow-right"></i></a></td>
+        </tr>
+        <?php endforeach; ?>
+    <?php endif; ?>
+</tbody>
                         </table>
                     </div>
                 </div>

@@ -24,6 +24,7 @@ $cliente = $pdo->prepare("
            ) as vacios_reales,
            (SELECT COUNT(*) FROM ventas WHERE id_cliente = c.id_cliente) as total_ventas,
            (SELECT SUM(total_monto_usd) FROM ventas WHERE id_cliente = c.id_cliente) as monto_total_ventas,
+           (SELECT MIN(fecha_venta) FROM ventas WHERE id_cliente = c.id_cliente) as primera_compra,
            cc.limite_credito, cc.dias_credito
     FROM clientes c
     LEFT JOIN cuentas_por_cobrar cc ON c.id_cliente = cc.id_cliente
@@ -38,22 +39,44 @@ if (!$cliente) {
     exit();
 }
 
-// 2. HISTORIAL MIXTO (Ventas y Abonos)
-$historial = $pdo->prepare("
+// 2. HISTORIAL MIXTO (ESTADO DE CUENTA)
+$historial_query = $pdo->prepare("
     SELECT 'VENTA' as tipo, fecha_venta as fecha, total_monto_usd as monto, total_vacios_despachados as vacios_salida, 
-           0 as vacios_entrada, id_venta as referencia, estado_pago
+           0 as vacios_entrada, id_venta as referencia, estado_pago as detalle, NULL as id_venta_abono
     FROM ventas 
     WHERE id_cliente = ?
     UNION ALL
     SELECT 'ABONO' as tipo, fecha_abono as fecha, monto_abonado_usd as monto, 0 as vacios_salida, 
-           vacios_devueltos as vacios_entrada, id_abono as referencia, metodo_pago as estado_pago
+           vacios_devueltos as vacios_entrada, id_abono as referencia, metodo_pago as detalle, id_venta as id_venta_abono
     FROM abonos 
     WHERE id_cliente = ?
-    ORDER BY fecha DESC
-    LIMIT 50
+    ORDER BY fecha ASC
 ");
-$historial->execute([$id_cliente, $id_cliente]);
-$historial = $historial->fetchAll();
+$historial_query->execute([$id_cliente, $id_cliente]);
+$historial_asc = $historial_query->fetchAll();
+
+// Calculamos el saldo progresivo (Como un estado de cuenta bancario)
+$saldo_dinero = 0;
+$saldo_vacios = 0;
+$historial_formateado = [];
+
+foreach($historial_asc as $mov) {
+    if($mov['tipo'] == 'VENTA') {
+        $saldo_dinero += (float)$mov['monto'];
+        $saldo_vacios += (int)$mov['vacios_salida'];
+    } else {
+        $saldo_dinero -= (float)$mov['monto'];
+        $saldo_vacios -= (int)$mov['vacios_entrada'];
+        if($saldo_dinero < 0.01) $saldo_dinero = 0; // Evitar negativos por céntimos
+        if($saldo_vacios < 0) $saldo_vacios = 0;
+    }
+    $mov['saldo_dinero_momento'] = $saldo_dinero;
+    $mov['saldo_vacios_momento'] = $saldo_vacios;
+    $historial_formateado[] = $mov;
+}
+
+// Invertimos el array para que lo más reciente salga de primero
+$historial = array_reverse($historial_formateado);
 
 // 3. VENTAS PENDIENTES
 $ventas_pendientes = $pdo->prepare("
@@ -159,40 +182,43 @@ $ventas_pendientes = $ventas_pendientes->fetchAll();
     </div>
     <?php endif; ?>
 
-    <div class="px-3 pb-5">
-        <h6 class="fw-bold text-muted mb-2">HISTORIAL RECIENTE</h6>
+<div class="px-3 pb-5">
+        <h6 class="fw-bold text-muted mb-2">ESTADO DE CUENTA</h6>
         <?php foreach($historial as $mov): 
             $esVenta = $mov['tipo'] == 'VENTA';
-            $bgIcon = $esVenta ? 'bg-primary bg-opacity-10 text-primary' : 'bg-success bg-opacity-10 text-success';
-            $icon = $esVenta ? 'bi-bag' : 'bi-cash';
+            $bgIcon = $esVenta ? 'bg-danger bg-opacity-10 text-danger' : 'bg-success bg-opacity-10 text-success';
+            $icon = $esVenta ? 'bi-cart-dash' : 'bi-cash-coin';
         ?>
-        <div class="history-card-mobile">
-            <div class="d-flex align-items-center">
-                <div class="history-icon <?php echo $bgIcon; ?>">
-                    <i class="bi <?php echo $icon; ?>"></i>
+        <div class="history-card-mobile position-relative overflow-hidden p-0 mb-3">
+            <div style="position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background-color: <?php echo $esVenta ? '#dc3545' : '#198754'; ?>;"></div>
+            
+            <div class="d-flex justify-content-between align-items-start p-3 pb-2 ps-4">
+                <div class="d-flex align-items-center">
+                    <div class="history-icon <?php echo $bgIcon; ?> me-3" style="width:35px; height:35px; font-size:1.1rem; border-radius:8px;">
+                        <i class="bi <?php echo $icon; ?>"></i>
+                    </div>
+                    <div>
+                        <div class="fw-bold text-dark" style="font-size: 0.95rem;">
+                            <?php echo $esVenta ? 'Factura #' . str_pad($mov['referencia'], 4, '0', STR_PAD_LEFT) : 'Recibo #' . str_pad($mov['referencia'], 4, '0', STR_PAD_LEFT); ?>
+                        </div>
+                        <small class="text-muted d-block" style="font-size: 0.75rem;"><?php echo date('d/m/y h:i A', strtotime($mov['fecha'])); ?></small>
+                        <?php if(!$esVenta && $mov['id_venta_abono']): ?>
+                            <small class="text-primary" style="font-size: 0.7rem;">Abono a Factura #<?php echo $mov['id_venta_abono']; ?></small>
+                        <?php endif; ?>
+                    </div>
                 </div>
-                <div>
-                    <div class="fw-bold text-dark"><?php echo $esVenta ? 'Compra' : 'Pago/Abono'; ?> #<?php echo $mov['referencia']; ?></div>
-                    <small class="text-muted"><?php echo date('d/m h:i A', strtotime($mov['fecha'])); ?></small>
+                
+                <div class="text-end">
+                    <div class="fw-bold <?php echo $esVenta ? 'text-danger' : 'text-success'; ?>" style="font-size: 1rem;">
+                        <?php echo $esVenta ? 'Cargo' : 'Abono'; ?><br>
+                        $<?php echo number_format($mov['monto'], 2); ?>
+                    </div>
                 </div>
             </div>
             
-            <div class="text-end">
-                <div class="fw-bold <?php echo $esVenta ? 'text-dark' : 'text-success'; ?>">
-                    <?php echo $esVenta ? '-' : '+'; ?>$<?php echo number_format($mov['monto'], 2); ?>
-                </div>
-                
-                <?php if($mov['vacios_entrada'] > 0): ?>
-                    <span class="badge bg-warning text-dark border border-warning">
-                        +<?php echo $mov['vacios_entrada']; ?> Vacíos
-                    </span>
-                <?php elseif($mov['vacios_salida'] > 0): ?>
-                    <span class="badge bg-light text-muted border">
-                        -<?php echo $mov['vacios_salida']; ?> Vacíos
-                    </span>
-                <?php else: ?>
-                    <small class="text-muted"><?php echo $mov['estado_pago']; ?></small>
-                <?php endif; ?>
+            <div class="bg-light px-3 py-2 d-flex justify-content-between align-items-center border-top">
+                <span class="small text-muted fw-bold">SALDO RESTANTE:</span>
+                <span class="fw-bold text-primary fs-5">$<?php echo number_format($mov['saldo_dinero_momento'], 2); ?></span>
             </div>
         </div>
         <?php endforeach; ?>
@@ -427,78 +453,66 @@ $ventas_pendientes = $ventas_pendientes->fetchAll();
     </div>
     <?php endif; ?>
 
-    <div class="card">
+<div class="card">
         <div class="card-header bg-dark text-white">
             <h5 class="mb-0"><i class="bi bi-clock-history"></i> Historial de Transacciones</h5>
         </div>
         <div class="card-body">
             <div class="table-responsive">
-                <table class="table table-hover datatable">
-                    <thead>
+                
+                <table class="table table-hover table-bordered align-middle datatable">
+                    <thead class="table-light">
                         <tr>
-                            <th>Fecha</th>
-                            <th>Tipo</th>
-                            <th>Referencia</th>
-                            <th class="text-end">Monto $</th>
-                            <th class="text-center">Vacíos</th>
-                            <th>Estado/Detalle</th>
+                            <th>Fecha y Hora</th>
+                            <th>Concepto</th>
+                            <th class="text-danger text-end">Cargos (Ventas)</th>
+                            <th class="text-success text-end">Abonos (Pagos)</th>
+                            <th class="text-primary text-end fw-bold">Saldo Actual</th>
+                            <th class="text-center bg-warning bg-opacity-10">Deuda Vacíos</th>
                         </tr>
                     </thead>
                     <tbody>
-                        <?php foreach($historial as $movimiento): ?>
+                        <?php foreach($historial as $mov): ?>
                         <tr>
-                            <td><?php echo date('d/m/Y H:i', strtotime($movimiento['fecha'])); ?></td>
                             <td>
-                                <?php if($movimiento['tipo'] == 'VENTA'): ?>
-                                    <span class="badge bg-primary">VENTA</span>
-                                <?php else: ?>
-                                    <span class="badge bg-success">ABONO</span>
-                                <?php endif; ?>
+                                <span class="d-none"><?php echo strtotime($mov['fecha']); ?></span>
+                                <?php echo date('d/m/Y h:i A', strtotime($mov['fecha'])); ?>
                             </td>
                             <td>
-                                <?php if($movimiento['tipo'] == 'VENTA'): ?>
-                                    Venta #<?php echo str_pad($movimiento['referencia'], 5, '0', STR_PAD_LEFT); ?>
+                                <?php if($mov['tipo'] == 'VENTA'): ?>
+                                    <span class="badge bg-danger bg-opacity-10 text-danger border border-danger">Factura #<?php echo str_pad($mov['referencia'], 5, '0', STR_PAD_LEFT); ?></span>
+                                    <small class="d-block text-muted mt-1">Estado: <?php echo $mov['detalle']; ?></small>
                                 <?php else: ?>
-                                    Abono #<?php echo str_pad($movimiento['referencia'], 5, '0', STR_PAD_LEFT); ?>
+                                    <span class="badge bg-success bg-opacity-10 text-success border border-success">Recibo Abono #<?php echo str_pad($mov['referencia'], 5, '0', STR_PAD_LEFT); ?></span>
+                                    <?php if($mov['id_venta_abono']): ?>
+                                        <small class="d-block text-primary mt-1">Va a Factura #<?php echo str_pad($mov['id_venta_abono'], 5, '0', STR_PAD_LEFT); ?></small>
+                                    <?php else: ?>
+                                        <small class="d-block text-muted mt-1">Método: <?php echo $mov['detalle']; ?></small>
+                                    <?php endif; ?>
                                 <?php endif; ?>
                             </td>
-                            <td class="text-end fw-bold">
-                                <?php if((float)$movimiento['monto'] == 0): ?>
-                                    <span class="text-muted small fw-normal">$0.00</span>
-                                <?php elseif($movimiento['tipo'] == 'VENTA'): ?>
-                                    <span class="text-danger">-$<?php echo number_format($movimiento['monto'], 2); ?></span>
-                                <?php else: ?>
-                                    <span class="text-success">+$<?php echo number_format($movimiento['monto'], 2); ?></span>
-                                <?php endif; ?>
+                            <td class="text-end text-danger fw-bold">
+                                <?php echo $mov['tipo'] == 'VENTA' ? '$'.number_format($mov['monto'], 2) : ''; ?>
                             </td>
-                            <td class="text-center">
-                                <?php if($movimiento['vacios_salida'] > 0): ?>
-                                    <span class="badge bg-warning text-dark">-<?php echo $movimiento['vacios_salida']; ?></span>
-                                <?php elseif($movimiento['vacios_entrada'] > 0): ?>
-                                    <span class="badge bg-success">+<?php echo $movimiento['vacios_entrada']; ?></span>
-                                <?php else: ?>
-                                    <span class="text-muted">-</span>
-                                <?php endif; ?>
+                            <td class="text-end text-success fw-bold">
+                                <?php echo $mov['tipo'] == 'ABONO' ? '$'.number_format($mov['monto'], 2) : ''; ?>
                             </td>
-                            <td>
-                                <?php if($movimiento['tipo'] == 'VENTA'): ?>
-                                    <span class="badge bg-<?php 
-                                        echo $movimiento['estado_pago'] == 'Pagado' ? 'success' : 
-                                                ($movimiento['estado_pago'] == 'Pendiente' ? 'warning' : 'info'); 
-                                    ?>">
-                                        <?php echo $movimiento['estado_pago']; ?>
-                                    </span>
-                                <?php else: ?>
-                                    <span class="badge bg-success-subtle text-success border border-success-subtle">
-                                        <i class="bi bi-check2-all"></i> Recibido
-                                    </span>
+                            <td class="text-end fw-bold text-primary bg-light" style="font-size: 1.1rem;">
+                                $<?php echo number_format($mov['saldo_dinero_momento'], 2); ?>
+                            </td>
+                            <td class="text-center bg-warning bg-opacity-10">
+                                <?php if($mov['tipo'] == 'VENTA' && $mov['vacios_salida'] > 0): ?>
+                                    <span class="text-danger small">+<?php echo $mov['vacios_salida']; ?> prestados</span><br>
+                                <?php elseif($mov['tipo'] == 'ABONO' && $mov['vacios_entrada'] > 0): ?>
+                                    <span class="text-success small">-<?php echo $mov['vacios_entrada']; ?> devueltos</span><br>
                                 <?php endif; ?>
+                                <strong>Debe: <?php echo $mov['saldo_vacios_momento']; ?></strong>
                             </td>
                         </tr>
                         <?php endforeach; ?>
                     </tbody>
                 </table>
-            </div>
+                </div>
         </div>
     </div>
 </div>

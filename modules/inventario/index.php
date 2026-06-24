@@ -4,40 +4,50 @@ $page_title = "Gestión de Inventario";
 include '../../config/db.php';
 include '../../includes/header.php';
 
-// --- LÓGICA DEL BUSCADOR ---
+// --- LÓGICA DEL BUSCADOR (SOLO PRODUCTOS ACTIVOS: estado = 1) ---
 $busqueda = isset($_GET['q']) ? trim($_GET['q']) : '';
 
 if ($busqueda != '') {
-    // Si hay búsqueda, buscamos por nombre o código y QUITAMOS el límite para encontrar todo
     $sql = "SELECT * FROM productos 
-            WHERE nombre_producto LIKE :q 
-            OR id_producto = :id 
+            WHERE (nombre_producto LIKE :q OR id_producto = :id)
+            AND estado = 1 
             ORDER BY stock_lleno ASC";
     $stmt = $pdo->prepare($sql);
     $stmt->execute([
         ':q' => "%$busqueda%",
-        ':id' => $busqueda // Por si busca por ID exacto
+        ':id' => $busqueda 
     ]);
 } else {
-    // Si NO hay búsqueda, mostramos los primeros 50 para que cargue rápido en el cel
-    $sql = "SELECT * FROM productos ORDER BY stock_lleno ASC LIMIT 50";
+    $sql = "SELECT * FROM productos WHERE estado = 1 ORDER BY stock_lleno ASC LIMIT 50";
     $stmt = $pdo->query($sql);
 }
 
 $productos_data = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-// Estadísticas base (Siguen igual)
+// Estadísticas base (SOLO ACTIVOS)
 $estadisticas = $pdo->query("
     SELECT 
         COUNT(*) as total_productos,
-        SUM(stock_lleno) as total_stock_lleno,
         SUM(stock_lleno * precio_venta_usd) as valor_inventario,
         SUM(CASE WHEN stock_lleno < 10 THEN 1 ELSE 0 END) as productos_bajo_stock,
         SUM(CASE WHEN stock_lleno = 0 THEN 1 ELSE 0 END) as productos_sin_stock
     FROM productos
+    WHERE estado = 1
 ")->fetch(PDO::FETCH_ASSOC);
 
-// Cálculo interno de vacíos
+// --- KPI ESPECÍFICO: SOLO CAJAS DE CERVEZAS PRINCIPALES ---
+$cajas_cervezas = $pdo->query("
+    SELECT COALESCE(SUM(stock_lleno), 0) 
+    FROM productos 
+    WHERE estado = 1 
+    AND (
+        nombre_producto LIKE '%Light 1/4%' OR 
+        nombre_producto LIKE '%Solera Light 1/4' OR 
+        nombre_producto LIKE '%pilsen 1/4%'
+    )
+")->fetchColumn();
+
+// Cálculo interno de vacíos (Mantenemos tu lógica para Gaveras de plástico)
 $total_vacios_real = 0;
 foreach ($productos_data as $p) {
     $total_vacios_real += $p['stock_vacio'];
@@ -129,7 +139,7 @@ foreach ($productos_data as $p) {
         <div class="card border-start border-success border-4 h-100">
             <div class="card-body p-2 p-md-3">
                 <div class="d-flex justify-content-between align-items-center">
-                    <div><h6 class="text-muted small mb-1">Cajas Llenas</h6><h3 class="mb-0 fw-bold"><?php echo number_format($estadisticas['total_stock_lleno']); ?></h3></div>
+                    <div><h6 class="text-muted small mb-1">Cajas Llenas</h6><h3 class="mb-0 fw-bold"><?php echo number_format($cajas_cervezas); ?></h3></h3></div>
                     <i class="bi bi-check-circle text-success fs-1 opacity-25"></i>
                 </div>
             </div>

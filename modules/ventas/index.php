@@ -12,7 +12,7 @@ $sql_clientes = "SELECT * FROM clientes ORDER BY nombre_cliente ASC";
 $clientes = $pdo->query($sql_clientes)->fetchAll();
 
 // Cargar Productos con Stock > 0
-$sql_productos = "SELECT * FROM productos WHERE stock_lleno > 0 ORDER BY nombre_producto ASC";
+$sql_productos = "SELECT * FROM productos WHERE stock_lleno > 0 AND estado = 1 ORDER BY nombre_producto ASC";
 $productos = $pdo->query($sql_productos)->fetchAll();
 
 // Obtener cliente específico si hay filtro
@@ -363,8 +363,7 @@ if ($cliente_filtro > 0) {
     </div>
 </div>
 
-<div id="floatingCheckout" class="mobile-checkout-bar d-md-none" style="display: none !important;">
-    <div>
+<div id="floatingCheckout" class="mobile-checkout-bar d-none d-md-none">    <div>
         <small class="d-block text-white-50">Total a Pagar</small>
         <span class="fs-2 fw-bold" id="totalMontoFlotante">$0.00</span>
     </div>
@@ -580,7 +579,8 @@ if ($cliente_filtro > 0) {
             emptyMsg.style.display = 'none';
             resumen.classList.remove('d-none');
             // Mostrar barra flotante
-            floatingBar.style.setProperty('display', 'flex', 'important');
+            floatingBar.style.display = ''; 
+            floatingBar.classList.remove('d-none');
 
             carrito.forEach((item, index) => {
                 totalVenta += item.subtotal;
@@ -618,7 +618,7 @@ if ($cliente_filtro > 0) {
             emptyMsg.style.display = 'block';
             resumen.classList.add('d-none');
             // Ocultar barra flotante
-            floatingBar.style.setProperty('display', 'none', 'important');
+            floatingBar.classList.add('d-none');
         }
 
         // Actualizar textos

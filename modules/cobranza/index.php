@@ -315,66 +315,84 @@ $deudores_data = $stmt->fetchAll(PDO::FETCH_ASSOC);
             <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
           </div>
           <div class="modal-body">
-            <input type="hidden" name="id_cliente" id="abonoClienteId">
-            <div class="alert alert-primary">
-                <h5 class="mb-2" id="abonoClienteNombre">Cliente</h5>
-                <div class="row">
-                    <div class="col-12 col-md-6 mb-2 mb-md-0">
-                        <small>Deuda Dinero:</small><br>
-                        <span class="fw-bold text-danger fs-4" id="deudaDineroActual">$0.00</span>
-                    </div>
-                    <div class="col-12 col-md-6">
-                        <small>Deuda Vacíos:</small><br>
-                        <span class="fw-bold text-warning fs-4" id="deudaVaciosActual">0</span>
-                    </div>
-                </div>
-            </div>
+    <input type="hidden" name="id_cliente" id="abonoClienteId">
+    
+    <!-- Tarjeta de deuda actual (más visible) -->
+    <div class="card mb-4 border-0 shadow-sm">
+        <div class="card-body bg-light bg-gradient rounded-3">
+            <h6 class="card-title text-muted mb-3"><i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>Deuda Actual</h6>
             <div class="row">
-                <div class="col-12 col-md-6 mb-3">
-                    <div class="card mb-3 h-100">
-                        <div class="card-header bg-success text-white"><h6 class="mb-0">Pago en Dinero</h6></div>
-                        <div class="card-body">
-                            <label class="form-label">Monto a Pagar ($)</label>
-                            <input type="number" step="0.01" name="monto_abono" id="montoAbono" class="form-control" oninput="calcularSaldoRestante()">
-                            <label class="form-label mt-2">Método</label>
-                            <select name="metodo" class="form-select">
-                                <option value="Efectivo">Efectivo ($)</option>
-                                <option value="Pago Móvil">Pago Móvil (Bs)</option>
-                                <option value="Transferencia">Transferencia</option>
-                                <option value="Zelle">Zelle</option>
-                            </select>
-                            <label class="form-label mt-2">Referencia</label>
-                            <input type="text" name="referencia" class="form-control">
-                        </div>
-                    </div>
+                <div class="col-6 text-center border-end">
+                    <span class="small text-uppercase text-secondary">Dinero</span>
+                    <div class="display-6 fw-bold text-danger" id="deudaDineroActual">$0.00</div>
                 </div>
-                <div class="col-12 col-md-6 mb-3">
-                    <div class="card mb-3 h-100">
-                        <div class="card-header bg-warning text-dark"><h6 class="mb-0">Devolución de Vacíos</h6></div>
-                        <div class="card-body">
-                            <label class="form-label">Vacíos Devueltos</label>
-                            <input type="number" name="vacios_devueltos" id="vaciosDevueltos" class="form-control" oninput="calcularVaciosRestantes()">
-                            <label class="form-label mt-2">Observaciones</label>
-                            <textarea name="observaciones" class="form-control" rows="2"></textarea>
-                        </div>
-                    </div>
+                <div class="col-6 text-center">
+                    <span class="small text-uppercase text-secondary">Vacíos</span>
+                    <div class="display-6 fw-bold text-warning" id="deudaVaciosActual">0</div>
                 </div>
             </div>
-            <div class="card bg-light">
+        </div>
+    </div>
+
+    <div class="row g-3">
+        <!-- Pago en dinero -->
+        <div class="col-12 col-md-6">
+            <div class="card h-100 border-success">
+                <div class="card-header bg-success text-white py-2">
+                    <i class="bi bi-cash-coin me-1"></i> Pago en Dinero
+                </div>
                 <div class="card-body">
-                    <div class="row text-center">
-                        <div class="col-6">
-                            <small>Nuevo Saldo:</small><br>
-                            <strong id="saldoRestante" class="fs-5 text-danger">$0.00</strong>
-                        </div>
-                        <div class="col-6">
-                            <small>Nuevos Vacíos:</small><br>
-                            <strong id="vaciosRestantes" class="fs-5 text-warning">0</strong>
-                        </div>
-                    </div>
+                    <label class="form-label fw-semibold">Monto a Pagar ($)</label>
+                    <input type="number" step="0.01" name="monto_abono" id="montoAbono" class="form-control form-control-lg" oninput="calcularSaldoRestante()">
+                    
+                    <label class="form-label fw-semibold mt-3">Método</label>
+                    <select name="metodo" class="form-select">
+                        <option value="Efectivo">Efectivo ($)</option>
+                        <option value="Pago Móvil">Pago Móvil (Bs)</option>
+                        <option value="Transferencia">Transferencia</option>
+                    </select>
+                    
+                    <label class="form-label fw-semibold mt-3">Referencia</label>
+                    <input type="text" name="referencia" class="form-control" placeholder="Opcional">
                 </div>
             </div>
-          </div>
+        </div>
+
+        <!-- Devolución de vacíos -->
+        <div class="col-12 col-md-6">
+            <div class="card h-100 border-warning">
+                <div class="card-header bg-warning text-dark py-2">
+                    <i class="bi bi-box-seam me-1"></i> Devolución de Vacíos
+                </div>
+                <div class="card-body">
+                    <label class="form-label fw-semibold">Vacíos Devueltos</label>
+                    <input type="number" name="vacios_devueltos" id="vaciosDevueltos" class="form-control form-control-lg" oninput="calcularVaciosRestantes()">
+                    
+                    <label class="form-label fw-semibold mt-3">Observaciones</label>
+                    <textarea name="observaciones" class="form-control" rows="3" placeholder="Notas sobre la devolución..."></textarea>
+                </div>
+            </div>
+        </div>
+    </div>
+
+<div class="row g-3 mt-2">
+        <div class="col-6">
+            <div id="cajaSaldo" class="card text-center border-danger bg-danger bg-opacity-10 shadow-sm" style="transition: 0.3s;">
+                <div class="card-body py-3">
+                    <span id="labelSaldo" class="small text-uppercase text-secondary">Nuevo Saldo</span>
+                    <div class="display-6 fw-bold text-danger" id="saldoRestante">$0.00</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6">
+            <div id="cajaVacios" class="card text-center border-warning bg-warning bg-opacity-10 shadow-sm" style="transition: 0.3s;">
+                <div class="card-body py-3">
+                    <span id="labelVacios" class="small text-uppercase text-secondary">Nuevos Vacíos</span>
+                    <div class="display-6 fw-bold text-warning" id="vaciosRestantes">0</div>
+                </div>
+            </div>
+        </div>
+    </div>
           <div class="modal-footer">
             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
             <button type="submit" class="btn btn-success">Registrar Pago</button>
@@ -427,11 +445,19 @@ new Chart(ctxDeudas, {
 
 function prepararAbono(id, nombre, dinero, vacios) {
     document.getElementById('abonoClienteId').value = id;
-    document.getElementById('abonoClienteNombre').innerText = nombre;
+    // Si usas el div de la alerta azul arriba, puedes mantener esta línea:
+    if(document.getElementById('abonoClienteNombre')) {
+        document.getElementById('abonoClienteNombre').innerText = nombre;
+    }
+    
     document.getElementById('deudaDineroActual').innerText = "$" + parseFloat(dinero).toFixed(2);
     document.getElementById('deudaVaciosActual').innerText = vacios;
-    document.getElementById('montoAbono').value = '';
-    document.getElementById('vaciosDevueltos').value = '';
+    
+    // Autocompletar los inputs con la deuda total
+    document.getElementById('montoAbono').value = parseFloat(dinero).toFixed(2);
+    document.getElementById('vaciosDevueltos').value = vacios;
+    
+    // Disparar los cálculos para que se pinten de verde inicialmente
     calcularSaldoRestante();
     calcularVaciosRestantes();
 }
@@ -440,14 +466,54 @@ function calcularSaldoRestante() {
     const deuda = parseFloat(document.getElementById('deudaDineroActual').innerText.replace('$','')) || 0;
     const abono = parseFloat(document.getElementById('montoAbono').value) || 0;
     const resto = deuda - abono;
-    document.getElementById('saldoRestante').innerText = "$" + resto.toFixed(2);
-    document.getElementById('saldoRestante').className = resto <= 0.01 ? "fs-5 fw-bold text-success" : "fs-5 fw-bold text-danger";
+    
+    const txtSaldo = document.getElementById('saldoRestante');
+    const cajaSaldo = document.getElementById('cajaSaldo');
+    const labelSaldo = document.getElementById('labelSaldo');
+    
+    txtSaldo.innerText = "$" + Math.max(0, resto).toFixed(2);
+    
+    // Cambio visual dinámico para tu nuevo diseño
+    if (resto <= 0.01) {
+        // Todo pagado (Verde)
+        cajaSaldo.className = "card text-center border-success bg-success bg-opacity-10 shadow-sm";
+        labelSaldo.className = "small text-uppercase text-success fw-bold";
+        labelSaldo.innerText = "¡Deuda Saldada!";
+        txtSaldo.className = "display-6 fw-bold text-success";
+    } else {
+        // Aún debe (Rojo)
+        cajaSaldo.className = "card text-center border-danger bg-danger bg-opacity-10 shadow-sm";
+        labelSaldo.className = "small text-uppercase text-secondary";
+        labelSaldo.innerText = "Nuevo Saldo";
+        txtSaldo.className = "display-6 fw-bold text-danger";
+    }
 }
 
 function calcularVaciosRestantes() {
     const deuda = parseInt(document.getElementById('deudaVaciosActual').innerText) || 0;
     const abono = parseInt(document.getElementById('vaciosDevueltos').value) || 0;
-    document.getElementById('vaciosRestantes').innerText = deuda - abono;
+    const resto = deuda - abono;
+    
+    const txtVacios = document.getElementById('vaciosRestantes');
+    const cajaVacios = document.getElementById('cajaVacios');
+    const labelVacios = document.getElementById('labelVacios');
+    
+    txtVacios.innerText = Math.max(0, resto);
+    
+    // Cambio visual dinámico para tu nuevo diseño
+    if (resto <= 0) {
+        // Vacíos devueltos (Verde)
+        cajaVacios.className = "card text-center border-success bg-success bg-opacity-10 shadow-sm";
+        labelVacios.className = "small text-uppercase text-success fw-bold";
+        labelVacios.innerText = "¡Vacíos Listos!";
+        txtVacios.className = "display-6 fw-bold text-success";
+    } else {
+        // Aún debe vacíos (Naranja)
+        cajaVacios.className = "card text-center border-warning bg-warning bg-opacity-10 shadow-sm";
+        labelVacios.className = "small text-uppercase text-secondary";
+        labelVacios.innerText = "Nuevos Vacíos";
+        txtVacios.className = "display-6 fw-bold text-warning";
+    }
 }
 
 // Filtros
@@ -500,7 +566,7 @@ $(document).ready(function() {
 <script>
 Swal.fire({
   icon: 'success',
-  title: '¡Listo, Gordo!',
+  title: '¡Listo!',
   text: '<?php echo $_SESSION['swal_success']; ?>',
   confirmButtonColor: '#28a745'
 });
